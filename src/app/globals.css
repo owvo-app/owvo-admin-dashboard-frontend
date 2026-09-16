@@ -2589,3 +2589,21 @@ a {
   margin-top: 20px;
   padding-top: 16px;
 }
+
+/* Today's Washes column — Washers table */
+.wash-capacity {
+  font-weight: 700;
+  font-size: 13px;
+  color: #111827;
+}
+
+.wash-capacity-busy {
+  font-weight: 500;
+  color: #6b7280;
+}
+
+.wash-capacity-offline {
+  color: #9ca3af;
+}
+
+

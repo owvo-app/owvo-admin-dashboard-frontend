@@ -1417,6 +1417,7 @@ export function WashersPageContent() {
             <tr>
               <th>Washer</th>
               <th>Status</th>
+              <th>Today's Washes</th>
               <th>Verification</th>
               <th>Rating</th>
               <th>Completed Jobs</th>
@@ -1433,6 +1434,16 @@ export function WashersPageContent() {
                   <span className={`table-status ${washer.isOnline ? "approved" : "pending"}`}>
                     {washer.isOnline ? "online" : "offline"}
                   </span>
+                </td>
+                <td>
+                  {washer.isOnline ? (
+                    <span className="wash-capacity">
+                      {washer.dailyWashLimit ?? 0}/{washer.dailyWashLimitMax ?? 7}
+                      {washer.isBusy && <span className="wash-capacity-busy"> · on a job</span>}
+                    </span>
+                  ) : (
+                    <span className="wash-capacity-offline">—</span>
+                  )}
                 </td>
                 <td>
                   <span className={`table-status ${washer.adminVerification?.status || "not_submitted"}`}>
@@ -2966,7 +2977,3 @@ export function SystemLogsPageContent() {
     </section>
   );
 }
-
-
-
-
