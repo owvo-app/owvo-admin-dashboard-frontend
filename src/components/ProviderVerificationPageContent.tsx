@@ -2,14 +2,28 @@
 
 import {
   getProviderVerifications,
+  sendVerificationReminder,
   updateProviderEnforcement,
   updateProviderVerification,
+  updateProviderVerificationDetails,
   type ProviderVerification,
+  type VerificationDetailsPayload,
 } from "@/lib/admin-api";
 import { SOCKET_URL } from "@/lib/api";
 import { useDashboardDateRange } from "@/hooks/useDashboardDateRange";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { BadgeCheck, CircleAlert, FileText, Loader2, ShieldCheck, Undo2, XCircle } from "lucide-react";
+import {
+  BadgeCheck,
+  BellRing,
+  CircleAlert,
+  Copy,
+  Download,
+  FileText,
+  Loader2,
+  ShieldCheck,
+  Undo2,
+  XCircle,
+} from "lucide-react";
 import { useState } from "react";
 
 const verificationFilters = [
@@ -44,20 +58,55 @@ function ChecklistItem({ done, label }: { done: boolean; label: string }) {
 
 function DocumentLink({ label, url }: { label: string; url?: string }) {
   const resolvedUrl = resolvePhotoUrl(url);
+  const [copied, setCopied] = useState(false);
 
   return (
-    <a
-      className={resolvedUrl ? "doc-link ready" : "doc-link"}
-      href={resolvedUrl || "#"}
-      onClick={(event) => {
-        if (!resolvedUrl) event.preventDefault();
-      }}
-      rel="noreferrer"
-      target="_blank"
-    >
-      {label}
-      <span>{resolvedUrl ? "Open" : "Missing"}</span>
-    </a>
+    <div className={resolvedUrl ? "doc-link ready" : "doc-link"}>
+      <a
+        className="doc-link-open"
+        href={resolvedUrl || "#"}
+        onClick={(event) => {
+          if (!resolvedUrl) event.preventDefault();
+        }}
+        rel="noreferrer"
+        target="_blank"
+      >
+        {label}
+        <span>{resolvedUrl ? "Open" : "Missing"}</span>
+      </a>
+      {resolvedUrl ? (
+        <div className="doc-link-tools">
+          <a
+            aria-label={`Download ${label}`}
+            download
+            href={resolvedUrl}
+            rel="noreferrer"
+            target="_blank"
+            title="Download"
+          >
+            <Download size={13} />
+          </a>
+          <button
+            aria-label={`Copy link to ${label}`}
+            onClick={async (event) => {
+              event.preventDefault();
+              try {
+                await navigator.clipboard.writeText(resolvedUrl);
+                setCopied(true);
+                setTimeout(() => setCopied(false), 1500);
+              } catch {
+                // Clipboard access denied — koi bhi karwa nahi tootega,
+                // bas visual feedback nahi milega.
+              }
+            }}
+            title="Copy link"
+            type="button"
+          >
+            {copied ? <BadgeCheck size={13} /> : <Copy size={13} />}
+          </button>
+        </div>
+      ) : null}
+    </div>
   );
 }
 function formatBankDate(value?: string) {
@@ -95,6 +144,224 @@ function BankDetailsReview({ provider }: { provider: ProviderVerification }) {
   );
 }
 
+function StatusToggle({
+  value,
+  onChange,
+  disabled,
+}: {
+  value: "pending" | "verified" | "rejected";
+  onChange: (next: "pending" | "verified" | "rejected") => void;
+  disabled: boolean;
+}) {
+  const options: Array<"pending" | "verified" | "rejected"> = [
+    "pending",
+    "verified",
+    "rejected",
+  ];
+  return (
+    <div className="status-toggle">
+      {options.map((option) => (
+        <button
+          className={value === option ? "status-toggle-pill active" : "status-toggle-pill"}
+          disabled={disabled}
+          key={option}
+          onClick={() => onChange(option)}
+          type="button"
+        >
+          {option}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+const drivewayChecklistFields: Array<{
+  key: keyof NonNullable<ProviderVerification["drivewayEligibility"]>;
+  label: string;
+}> = [
+  { key: "isPrivateProperty", label: "Private property" },
+  { key: "oneCarSpaceOnly", label: "Suitable for one vehicle" },
+  { key: "noRoadPayment", label: "Does not block the road" },
+  { key: "hasPermission", label: "Landlord permission (if applicable)" },
+  { key: "isSafeWorkingArea", label: "Safe working area" },
+  { key: "isResidentialAreaSuitable", label: "Residential area suitable for washing" },
+];
+
+function VerificationDetailsPanel({ provider }: { provider: ProviderVerification }) {
+  const queryClient = useQueryClient();
+
+  const [niStatus, setNiStatus] = useState(provider.nationalInsuranceStatus || "pending");
+  const insurance = provider.publicLiabilityInsurance;
+  const [policyNumber, setPolicyNumber] = useState(insurance?.policyNumber || "");
+  const [insuranceCompany, setInsuranceCompany] = useState(insurance?.insuranceCompany || "");
+  const [expiryDate, setExpiryDate] = useState(
+    insurance?.expiryDate ? insurance.expiryDate.slice(0, 10) : ""
+  );
+  const [insuranceStatus, setInsuranceStatus] = useState(insurance?.status || "pending");
+  const [driveway, setDriveway] = useState(provider.drivewayEligibility || {});
+  const [reminderMessage, setReminderMessage] = useState("");
+  const [reminderSent, setReminderSent] = useState(false);
+
+  const mutation = useMutation({
+    mutationFn: (payload: VerificationDetailsPayload) =>
+      updateProviderVerificationDetails(provider._id, payload),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["provider-verifications"] });
+    },
+  });
+
+  const reminderMutation = useMutation({
+    mutationFn: (message?: string) => sendVerificationReminder(provider._id, message),
+    onSuccess: () => {
+      setReminderSent(true);
+      setTimeout(() => setReminderSent(false), 3000);
+      setReminderMessage("");
+    },
+  });
+
+  const expiringSoon =
+    insurance?.expiryDate &&
+    new Date(insurance.expiryDate).getTime() - Date.now() < 1000 * 60 * 60 * 24 * 30;
+
+  return (
+    <div className="verification-details-panel">
+      <div className="verification-details-row">
+        <div>
+          <strong>National Insurance</strong>
+          <span className="verification-details-subtext">
+            {provider.nationalInsuranceNumber || "Not added"}
+          </span>
+        </div>
+        <StatusToggle
+          disabled={mutation.isPending}
+          onChange={(next) => {
+            setNiStatus(next);
+            mutation.mutate({ nationalInsuranceStatus: next });
+          }}
+          value={niStatus}
+        />
+      </div>
+
+      <div className="verification-details-row verification-details-row-stack">
+        <div className="verification-details-header">
+          <strong>Public Liability Insurance</strong>
+          {expiringSoon ? (
+            <span className="table-status rejected">Expiring soon</span>
+          ) : null}
+        </div>
+        <div className="verification-details-grid">
+          <label>
+            Policy number
+            <input
+              onChange={(e) => setPolicyNumber(e.target.value)}
+              type="text"
+              value={policyNumber}
+            />
+          </label>
+          <label>
+            Insurance company
+            <input
+              onChange={(e) => setInsuranceCompany(e.target.value)}
+              type="text"
+              value={insuranceCompany}
+            />
+          </label>
+          <label>
+            Expiry date
+            <input
+              onChange={(e) => setExpiryDate(e.target.value)}
+              type="date"
+              value={expiryDate}
+            />
+          </label>
+        </div>
+        <div className="verification-details-footer">
+          <StatusToggle
+            disabled={mutation.isPending}
+            onChange={setInsuranceStatus}
+            value={insuranceStatus}
+          />
+          <button
+            className="table-action"
+            disabled={mutation.isPending}
+            onClick={() =>
+              mutation.mutate({
+                insurance: {
+                  policyNumber,
+                  insuranceCompany,
+                  expiryDate: expiryDate || undefined,
+                  status: insuranceStatus,
+                },
+              })
+            }
+            type="button"
+          >
+            {mutation.isPending ? "Saving…" : "Save insurance"}
+          </button>
+        </div>
+      </div>
+
+      <div className="verification-details-row verification-details-row-stack">
+        <strong>Driveway checklist</strong>
+        <div className="driveway-checklist-grid">
+          {drivewayChecklistFields.map(({ key, label }) => (
+            <label className="check-label compact-check" key={key}>
+              <input
+                checked={Boolean(driveway[key])}
+                onChange={(e) => {
+                  const next = { ...driveway, [key]: e.target.checked };
+                  setDriveway(next);
+                  mutation.mutate({ driveway: { [key]: e.target.checked } });
+                }}
+                type="checkbox"
+              />
+              {label}
+            </label>
+          ))}
+        </div>
+      </div>
+
+      <div className="verification-details-row verification-details-row-stack">
+        <strong>Send reminder</strong>
+        <p className="verification-details-subtext">
+          Sends a notification to the provider about any missing documents. Leave the
+          message blank to auto-generate one from what&apos;s currently missing.
+        </p>
+        <textarea
+          onChange={(e) => setReminderMessage(e.target.value)}
+          placeholder="Optional custom message…"
+          rows={2}
+          value={reminderMessage}
+        />
+        {reminderMutation.isError ? (
+          <p className="form-error">
+            {(reminderMutation.error as { response?: { data?: { message?: string } } })
+              ?.response?.data?.message || "Could not send reminder."}
+          </p>
+        ) : null}
+        <div className="verification-details-footer">
+          {reminderSent ? (
+            <span className="table-status approved">
+              <BadgeCheck size={13} /> Reminder sent
+            </span>
+          ) : (
+            <span />
+          )}
+          <button
+            className="table-action"
+            disabled={reminderMutation.isPending}
+            onClick={() => reminderMutation.mutate(reminderMessage.trim() || undefined)}
+            type="button"
+          >
+            <BellRing size={14} />
+            {reminderMutation.isPending ? "Sending…" : "Send reminder"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ProviderCard({
   provider,
   onApprove,
@@ -106,7 +373,7 @@ function ProviderCard({
   provider: ProviderVerification;
   onApprove: (providerId: string) => void;
   onBlock: (providerId: string) => void;
-  onReject: (providerId: string) => void;
+  onReject: (providerId: string, reason: string) => void;
   onRestore: (providerId: string) => void;
   busy: boolean;
 }) {
@@ -116,6 +383,8 @@ function ProviderCard({
   const enforcementStatus = provider.enforcement?.status || "clear";
   const isBlocked = ["suspended", "banned"].includes(enforcementStatus);
   const address = provider.providerAddress;
+  const [rejectDialogOpen, setRejectDialogOpen] = useState(false);
+  const [rejectReason, setRejectReason] = useState("");
   const [showBankDetails, setShowBankDetails] = useState(false);
   const bank = provider.bankDetails || {};
   const hasBankDetails = Boolean(
@@ -130,6 +399,18 @@ function ProviderCard({
   const publicLiabilityInsuranceUrl =
     provider.publicLiabilityInsurance?.document?.url || provider.insurance?.document?.url;
   const drivewayPhotoUrl = provider.drivewayPhoto?.document?.url;
+  const entrancePhotoUrl = provider.entrancePhoto?.document?.url;
+  const [showDetails, setShowDetails] = useState(false);
+
+  const missingDocuments = [
+    !hasUrl(provider.photo) ? "Selfie photo" : null,
+    !hasUrl(provider.identityVerification?.passportOrDrivingLicenseFile)
+      ? "Passport / Licence"
+      : null,
+    !publicLiabilityInsuranceUrl ? "Public Liability Insurance" : null,
+    !drivewayPhotoUrl ? "Driveway Photo" : null,
+    !hasBankDetails ? "Bank Details" : null,
+  ].filter((item): item is string => Boolean(item));
 
   return (
     <article className="verification-card">
@@ -183,6 +464,14 @@ function ProviderCard({
         <ChecklistItem done={Boolean(publicLiabilityInsuranceUrl)} label="Public liability insurance" />
         <ChecklistItem done={Boolean(drivewayPhotoUrl)} label="Driveway photo" />
         <ChecklistItem done={hasBankDetails} label="Bank details" />
+        <ChecklistItem
+          done={provider.nationalInsuranceStatus === "verified"}
+          label="National Insurance"
+        />
+        <ChecklistItem
+          done={drivewayChecklistFields.every(({ key }) => Boolean(provider.drivewayEligibility?.[key]))}
+          label="Driveway checklist"
+        />
       </div>
       <div className="document-grid">
         <DocumentLink label="Selfie" url={provider.photo?.url} />
@@ -192,6 +481,7 @@ function ProviderCard({
         />
         <DocumentLink label="Public Liability Insurance" url={publicLiabilityInsuranceUrl} />
         <DocumentLink label="Driveway Photo" url={drivewayPhotoUrl} />
+        <DocumentLink label="Entrance Photo" url={entrancePhotoUrl} />
         <button
           className={hasBankDetails ? "doc-link ready doc-link-button" : "doc-link doc-link-button"}
           onClick={() => setShowBankDetails((value) => !value)}
@@ -200,8 +490,17 @@ function ProviderCard({
           Bank Details
           <span>{hasBankDetails ? (showBankDetails ? "Hide" : "View") : "Missing"}</span>
         </button>
+        <button
+          className="doc-link ready doc-link-button"
+          onClick={() => setShowDetails((value) => !value)}
+          type="button"
+        >
+          NI, Insurance & Driveway
+          <span>{showDetails ? "Hide" : "View"}</span>
+        </button>
       </div>
       {showBankDetails ? <BankDetailsReview provider={provider} /> : null}
+      {showDetails ? <VerificationDetailsPanel provider={provider} /> : null}
       <div className="verification-actions">
         {status === "approved" ? (
           isBlocked ? (
@@ -230,7 +529,7 @@ function ProviderCard({
             <button
               className="outline-action"
               disabled={busy}
-              onClick={() => onReject(provider._id)}
+              onClick={() => setRejectDialogOpen(true)}
               type="button"
             >
               {busy ? <Loader2 size={15} /> : <XCircle size={15} />}
@@ -248,6 +547,59 @@ function ProviderCard({
           </>
         )}
       </div>
+      {rejectDialogOpen ? (
+        <div
+          className="training-modal-overlay"
+          onClick={() => setRejectDialogOpen(false)}
+          role="presentation"
+        >
+          <div
+            className="training-modal-panel"
+            onClick={(event) => event.stopPropagation()}
+            role="dialog"
+          >
+            <h2>Reject {provider.name || "provider"}?</h2>
+            {missingDocuments.length > 0 ? (
+              <p className="verification-details-subtext">
+                Currently missing: {missingDocuments.join(", ")}. This will be included in
+                the message sent to the provider automatically.
+              </p>
+            ) : null}
+            <label className="form-field">
+              Reason for rejection
+              <textarea
+                autoFocus
+                onChange={(event) => setRejectReason(event.target.value)}
+                placeholder="Explain what needs to be fixed…"
+                rows={3}
+                value={rejectReason}
+              />
+            </label>
+            <div className="modal-actions">
+              <button
+                className="secondary-button"
+                onClick={() => setRejectDialogOpen(false)}
+                type="button"
+              >
+                Cancel
+              </button>
+              <button
+                className="approve-action"
+                disabled={!rejectReason.trim() || busy}
+                onClick={() => {
+                  onReject(provider._id, rejectReason.trim());
+                  setRejectDialogOpen(false);
+                  setRejectReason("");
+                }}
+                type="button"
+              >
+                <XCircle size={15} />
+                Confirm reject
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </article>
   );
 }
@@ -266,13 +618,15 @@ export function ProviderVerificationPageContent() {
     mutationFn: ({
       providerId,
       nextStatus,
+      reason,
     }: {
       providerId: string;
       nextStatus: "approved" | "rejected";
+      reason?: string;
     }) =>
       updateProviderVerification(providerId, {
         status: nextStatus,
-        rejectionReason: nextStatus === "rejected" ? "Rejected by OWVO admin review." : "",
+        rejectionReason: nextStatus === "rejected" ? reason || "" : "",
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["provider-verifications"] });
@@ -344,8 +698,8 @@ export function ProviderVerificationPageContent() {
                 reason: "Blocked by OWVO admin from provider verification dashboard.",
               })
             }
-            onReject={(providerId) =>
-              verificationMutation.mutate({ providerId, nextStatus: "rejected" })
+            onReject={(providerId, reason) =>
+              verificationMutation.mutate({ providerId, nextStatus: "rejected", reason })
             }
             onRestore={(providerId) =>
               enforcementMutation.mutate({ providerId, nextStatus: "clear" })

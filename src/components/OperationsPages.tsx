@@ -1583,7 +1583,9 @@ export function EarningsPageContent() {
               <th>Washer</th>
               <th>Service</th>
               <th className="numeric-cell">Gross</th>
-              <th className="numeric-cell">OWVO 25%</th>
+              <th className="numeric-cell">
+                {`OWVO ${Math.round((earnings?.commissionRate ?? 0.25) * 100)}%`}
+              </th>
               <th className="numeric-cell">Washer Net</th>
             </tr>
           </thead>

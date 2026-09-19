@@ -113,9 +113,27 @@ export type ProviderVerification = {
   };
   publicLiabilityInsurance?: {
     document?: { url?: string };
+    policyNumber?: string;
+    insuranceCompany?: string;
+    expiryDate?: string;
+    status?: "pending" | "verified" | "rejected";
+    rejectionReason?: string;
   };
   drivewayPhoto?: {
     document?: { url?: string };
+  };
+  entrancePhoto?: {
+    document?: { url?: string };
+  };
+  nationalInsuranceStatus?: "pending" | "verified" | "rejected";
+  drivewayEligibility?: {
+    isPrivateProperty?: boolean;
+    hasPermission?: boolean;
+    noRoadPayment?: boolean;
+    oneCarSpaceOnly?: boolean;
+    notSharedOrCommunal?: boolean;
+    isSafeWorkingArea?: boolean;
+    isResidentialAreaSuitable?: boolean;
   };
   adminVerification?: {
     status: "not_submitted" | "pending" | "approved" | "rejected";
@@ -496,6 +514,53 @@ export async function updateProviderVerification(
   return response.data.data;
 }
 
+export type VerificationDetailsPayload = {
+  nationalInsuranceStatus?: "pending" | "verified" | "rejected";
+  insurance?: {
+    policyNumber?: string;
+    insuranceCompany?: string;
+    expiryDate?: string;
+    status?: "pending" | "verified" | "rejected";
+    rejectionReason?: string;
+  };
+  driveway?: {
+    isPrivateProperty?: boolean;
+    hasPermission?: boolean;
+    noRoadPayment?: boolean;
+    oneCarSpaceOnly?: boolean;
+    notSharedOrCommunal?: boolean;
+    isSafeWorkingArea?: boolean;
+    isResidentialAreaSuitable?: boolean;
+  };
+};
+
+export async function updateProviderVerificationDetails(
+  providerId: string,
+  payload: VerificationDetailsPayload
+) {
+  const response = await api.patch<ApiEnvelope<{
+    nationalInsuranceStatus: string;
+    publicLiabilityInsurance: ProviderVerification["publicLiabilityInsurance"];
+    drivewayEligibility: ProviderVerification["drivewayEligibility"];
+  }>>(`/admin/providers/${providerId}/verification-details`, payload);
+  return response.data.data;
+}
+
+export async function getExpiringInsurance(days = 30) {
+  const response = await api.get<
+    ApiEnvelope<Array<{ _id: string; name?: string; email?: string; publicLiabilityInsurance?: ProviderVerification["publicLiabilityInsurance"] }>>
+  >(`/admin/providers/insurance-expiring?days=${days}`);
+  return response.data.data;
+}
+
+export async function sendVerificationReminder(providerId: string, message?: string) {
+  const response = await api.post<ApiEnvelope<{ _id: string; message: string }>>(
+    `/admin/providers/${providerId}/send-verification-reminder`,
+    message ? { message } : {}
+  );
+  return response.data.data;
+}
+
 export async function updateProviderEnforcement(
   providerId: string,
   payload: { status: "clear" | "warned" | "suspended" | "banned"; reason?: string }
@@ -724,3 +789,111 @@ export async function createAdminCommissionWithdrawal(payload: {
   return response.data.data;
 }
 
+
+// ════════════════════════════════════════════════════════════════════════
+// Training Modules (Provider Academy)
+// ════════════════════════════════════════════════════════════════════════
+
+export type AdminTrainingModule = {
+  _id: string;
+  title: string;
+  topics: string[];
+  videoUrl: string;
+  cloudinaryPublicId?: string;
+  durationSeconds?: number | null;
+  order: number;
+  isMandatory: boolean;
+  isActive: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export type TrainingCompletionOverviewProvider = {
+  provider: { _id: string; name?: string; email?: string };
+  lastActivityAt: string;
+  completedCount: number;
+  totalModules: number;
+  completedModuleIds: string[];
+};
+
+export type TrainingCompletionOverview = {
+  modules: Array<{ _id: string; title: string }>;
+  providers: TrainingCompletionOverviewProvider[];
+};
+
+export async function getAdminTrainingModules() {
+  const response = await api.get<ApiEnvelope<AdminTrainingModule[]>>(
+    "/admin/training-modules"
+  );
+  return response.data.data;
+}
+
+export async function createTrainingModule(params: {
+  title: string;
+  topics: string[];
+  isMandatory: boolean;
+  video: File;
+}) {
+  const formData = new FormData();
+  formData.append("title", params.title);
+  formData.append("topics", JSON.stringify(params.topics));
+  formData.append("isMandatory", String(params.isMandatory));
+  formData.append("video", params.video);
+
+  const response = await api.post<ApiEnvelope<AdminTrainingModule>>(
+    "/admin/training-modules",
+    formData
+  );
+  return response.data.data;
+}
+
+export async function updateTrainingModule(
+  id: string,
+  payload: { title?: string; topics?: string[]; isMandatory?: boolean; isActive?: boolean }
+) {
+  const response = await api.patch<ApiEnvelope<AdminTrainingModule>>(
+    `/admin/training-modules/${id}`,
+    payload
+  );
+  return response.data.data;
+}
+
+export async function replaceTrainingModuleVideo(id: string, video: File) {
+  const formData = new FormData();
+  formData.append("video", video);
+
+  const response = await api.patch<ApiEnvelope<AdminTrainingModule>>(
+    `/admin/training-modules/${id}/replace-video`,
+    formData
+  );
+  return response.data.data;
+}
+
+export async function reorderTrainingModules(orderedIds: string[]) {
+  const response = await api.patch<ApiEnvelope<AdminTrainingModule[]>>(
+    "/admin/training-modules/reorder",
+    { order: orderedIds }
+  );
+  return response.data.data;
+}
+
+export async function deactivateTrainingModule(id: string) {
+  const response = await api.delete<ApiEnvelope<AdminTrainingModule>>(
+    `/admin/training-modules/${id}`
+  );
+  return response.data.data;
+}
+
+export async function getTrainingCompletionOverview() {
+  const response = await api.get<ApiEnvelope<TrainingCompletionOverview>>(
+    "/admin/training-modules/completion-overview"
+  );
+  return response.data.data;
+}
+
+export async function resetProviderTraining(providerId: string) {
+  const response = await api.patch<ApiEnvelope<{ trainingResetAt: string }>>(
+    `/admin/providers/${providerId}/training/reset`
+  );
+  return response.data.data;
+}

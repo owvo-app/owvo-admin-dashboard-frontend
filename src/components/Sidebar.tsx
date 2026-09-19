@@ -15,6 +15,7 @@ import {
   CalendarCheck,
   ChevronRight,
   Database,
+  GraduationCap,
   Gauge,
   Landmark,
   Settings,
@@ -34,6 +35,7 @@ const navItems: Array<{
   { key: "dashboard", label: "Dashboard", href: "/dashboard", icon: Gauge },
   { key: "bookings", label: "Bookings", href: "/bookings", icon: CalendarCheck },
   { key: "washers", label: "Washers", href: "/washers", icon: UserRoundCheck },
+  { key: "washers", label: "Training", href: "/training", icon: GraduationCap },
   { key: "customers", label: "Customers", href: "/customers", icon: UsersRound },
   { key: "provider-verification", label: "Providers Verification", href: "/provider-verification", icon: ShieldCheck },
   { key: "payouts-payments", label: "Payouts & Payments", href: "/payouts-payments", icon: WalletCards },
@@ -94,4 +96,3 @@ export function Sidebar() {
     </aside>
   );
 }
-
