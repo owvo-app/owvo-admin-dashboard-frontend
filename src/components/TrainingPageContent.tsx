@@ -39,6 +39,28 @@ function relativeDate(value?: string) {
   }
 }
 
+/** Client ke "Completion date: Date/Time" ke liye — exact, relative nahi. */
+function exactDateTime(value?: string) {
+  if (!value) return "—";
+  try {
+    return new Date(value).toLocaleString("en-GB", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return "—";
+  }
+}
+
+const statusLabels: Record<string, string> = {
+  completed: "✓ Completed",
+  in_progress: "In Progress",
+  not_started: "Not Started",
+};
+
 function formatDuration(seconds?: number | null) {
   if (!seconds && seconds !== 0) return "—:—";
   const m = Math.floor(seconds / 60);
@@ -216,7 +238,13 @@ export function TrainingPageContent() {
                   )}
                   {!module.isActive ? <span className="table-status rejected">Hidden</span> : null}
                 </div>
-                <span className="training-module-duration">{formatDuration(module.durationSeconds)} runtime</span>
+                <span className="training-module-duration">
+                  {formatDuration(module.durationSeconds)} runtime
+                  {module.trainingVersion ? ` · v${module.trainingVersion}` : ""}
+                </span>
+                {module.description ? (
+                  <p className="training-module-description">{module.description}</p>
+                ) : null}
                 {module.topics.length ? (
                   <ul className="training-module-topics">
                     {module.topics.map((topic, i) => (
@@ -262,8 +290,9 @@ export function TrainingPageContent() {
             <thead>
               <tr>
                 <th>Provider</th>
+                <th>Status</th>
                 <th>Completed</th>
-                <th>Last activity</th>
+                <th>Completion date</th>
                 <th></th>
               </tr>
             </thead>
@@ -272,9 +301,26 @@ export function TrainingPageContent() {
                 <tr key={entry.provider._id}>
                   <td>{entry.provider.name || entry.provider.email || "Unknown"}</td>
                   <td>
+                    <span
+                      className={
+                        entry.status === "completed"
+                          ? "table-status approved"
+                          : entry.status === "in_progress"
+                            ? "table-status pending"
+                            : "table-status"
+                      }
+                    >
+                      {statusLabels[entry.status] ?? entry.status}
+                    </span>
+                  </td>
+                  <td>
                     {entry.completedCount} / {entry.totalModules}
                   </td>
-                  <td>{relativeDate(entry.lastActivityAt)}</td>
+                  <td title={relativeDate(entry.lastActivityAt)}>
+                    {entry.status === "completed"
+                      ? exactDateTime(entry.lastActivityAt)
+                      : "—"}
+                  </td>
                   <td>
                     <button
                       className="table-action"
@@ -298,7 +344,7 @@ export function TrainingPageContent() {
               ))}
               {!progressQuery.isLoading && (progressQuery.data?.providers ?? []).length === 0 ? (
                 <tr>
-                  <td colSpan={4}>No providers have started training yet.</td>
+                  <td colSpan={5}>No providers have started training yet.</td>
                 </tr>
               ) : null}
             </tbody>
@@ -377,11 +423,18 @@ function AddModuleModal({
   error,
 }: {
   onCancel: () => void;
-  onSubmit: (payload: { title: string; topics: string[]; isMandatory: boolean; video: File }) => void;
+  onSubmit: (payload: {
+    title: string;
+    description: string;
+    topics: string[];
+    isMandatory: boolean;
+    video: File;
+  }) => void;
   isSaving: boolean;
   error: string | null;
 }) {
   const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
   const [topicsText, setTopicsText] = useState("");
   const [isMandatory, setIsMandatory] = useState(true);
   const [video, setVideo] = useState<File | null>(null);
@@ -391,6 +444,15 @@ function AddModuleModal({
       <label className="form-field">
         Title
         <input onChange={(e) => setTitle(e.target.value)} type="text" value={title} />
+      </label>
+      <label className="form-field">
+        Short description
+        <textarea
+          onChange={(e) => setDescription(e.target.value)}
+          placeholder="One or two sentences shown under the title"
+          rows={2}
+          value={description}
+        />
       </label>
       <label className="form-field">
         Topics (one per line)
@@ -424,6 +486,7 @@ function AddModuleModal({
             video &&
             onSubmit({
               title: title.trim(),
+              description: description.trim(),
               topics: topicsText
                 .split("\n")
                 .map((t) => t.trim())
@@ -450,20 +513,40 @@ function EditModuleModal({
 }: {
   module: AdminTrainingModule;
   onCancel: () => void;
-  onSubmit: (payload: { title: string; topics: string[]; isMandatory: boolean; isActive: boolean }) => void;
+  onSubmit: (payload: {
+    title: string;
+    description: string;
+    topics: string[];
+    isMandatory: boolean;
+    isActive: boolean;
+    trainingVersion: string;
+  }) => void;
   isSaving: boolean;
   error: string | null;
 }) {
   const [title, setTitle] = useState(module.title);
+  const [description, setDescription] = useState(module.description ?? "");
   const [topicsText, setTopicsText] = useState(module.topics.join("\n"));
   const [isMandatory, setIsMandatory] = useState(module.isMandatory);
   const [isActive, setIsActive] = useState(module.isActive);
+  const [trainingVersion, setTrainingVersion] = useState(
+    module.trainingVersion ?? "1.0"
+  );
 
   return (
     <ModalShell onCancel={onCancel} title="Edit module">
       <label className="form-field">
         Title
         <input onChange={(e) => setTitle(e.target.value)} type="text" value={title} />
+      </label>
+      <label className="form-field">
+        Short description
+        <textarea
+          onChange={(e) => setDescription(e.target.value)}
+          placeholder="One or two sentences shown under the title"
+          rows={2}
+          value={description}
+        />
       </label>
       <label className="form-field">
         Topics (one per line)
@@ -481,6 +564,14 @@ function EditModuleModal({
         <input checked={isActive} onChange={(e) => setIsActive(e.target.checked)} type="checkbox" />
         Visible to providers
       </label>
+      <label className="form-field">
+        Training version
+        <input onChange={(e) => setTrainingVersion(e.target.value)} type="text" value={trainingVersion} />
+      </label>
+      <p className="verification-details-subtext">
+        Bump this when you significantly revise the content — providers who completed an
+        older version will still show as completed, but admin can see which version they saw.
+      </p>
       {error ? <p className="form-error">{error}</p> : null}
       <div className="modal-actions">
         <button className="secondary-button" disabled={isSaving} onClick={onCancel} type="button">
@@ -492,12 +583,14 @@ function EditModuleModal({
           onClick={() =>
             onSubmit({
               title: title.trim(),
+              description: description.trim(),
               topics: topicsText
                 .split("\n")
                 .map((t) => t.trim())
                 .filter(Boolean),
               isMandatory,
               isActive,
+              trainingVersion: trainingVersion.trim() || "1.0",
             })
           }
           type="button"

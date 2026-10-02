@@ -797,6 +797,7 @@ export async function createAdminCommissionWithdrawal(payload: {
 export type AdminTrainingModule = {
   _id: string;
   title: string;
+  description?: string;
   topics: string[];
   videoUrl: string;
   cloudinaryPublicId?: string;
@@ -804,6 +805,7 @@ export type AdminTrainingModule = {
   order: number;
   isMandatory: boolean;
   isActive: boolean;
+  trainingVersion?: string;
   createdAt?: string;
   updatedAt?: string;
 };
@@ -814,10 +816,11 @@ export type TrainingCompletionOverviewProvider = {
   completedCount: number;
   totalModules: number;
   completedModuleIds: string[];
+  status: "completed" | "in_progress" | "not_started";
 };
 
 export type TrainingCompletionOverview = {
-  modules: Array<{ _id: string; title: string }>;
+  modules: Array<{ _id: string; title: string; trainingVersion?: string }>;
   providers: TrainingCompletionOverviewProvider[];
 };
 
@@ -830,12 +833,14 @@ export async function getAdminTrainingModules() {
 
 export async function createTrainingModule(params: {
   title: string;
+  description?: string;
   topics: string[];
   isMandatory: boolean;
   video: File;
 }) {
   const formData = new FormData();
   formData.append("title", params.title);
+  if (params.description) formData.append("description", params.description);
   formData.append("topics", JSON.stringify(params.topics));
   formData.append("isMandatory", String(params.isMandatory));
   formData.append("video", params.video);
@@ -849,7 +854,14 @@ export async function createTrainingModule(params: {
 
 export async function updateTrainingModule(
   id: string,
-  payload: { title?: string; topics?: string[]; isMandatory?: boolean; isActive?: boolean }
+  payload: {
+    title?: string;
+    description?: string;
+    topics?: string[];
+    isMandatory?: boolean;
+    isActive?: boolean;
+    trainingVersion?: string;
+  }
 ) {
   const response = await api.patch<ApiEnvelope<AdminTrainingModule>>(
     `/admin/training-modules/${id}`,
