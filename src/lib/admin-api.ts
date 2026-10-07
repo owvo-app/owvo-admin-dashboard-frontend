@@ -695,6 +695,65 @@ export async function updateAdminCatalogService(
   return response.data.data;
 }
 
+export async function createAdminCatalogService(
+  payload: Pick<AdminService, "title" | "serviceType" | "price" | "carSize" | "carName" | "carModel" | "description" | "isActive">
+) {
+  const response = await api.post<ApiEnvelope<AdminService>>(
+    "/admin/services-pricing/catalog",
+    payload
+  );
+  return response.data.data;
+}
+
+export async function deleteAdminCatalogService(serviceId: string) {
+  const response = await api.delete<ApiEnvelope<null>>(
+    `/admin/services-pricing/catalog/${serviceId}`
+  );
+  return response.data.data;
+}
+
+export type AdminAddon = {
+  _id: string;
+  name: string;
+  price: number;
+  description?: string;
+  isActive: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export type AdminAddonPayload = {
+  name: string;
+  price: number;
+  description?: string;
+  isActive?: boolean;
+};
+
+export async function getAdminAddons() {
+  const response = await api.get<ApiEnvelope<AdminAddon[]>>("/admin/addons");
+  return response.data.data;
+}
+
+export async function createAdminAddon(payload: AdminAddonPayload) {
+  const response = await api.post<ApiEnvelope<AdminAddon>>("/admin/addons", payload);
+  return response.data.data;
+}
+
+export async function updateAdminAddon(addonId: string, payload: Partial<AdminAddonPayload>) {
+  const response = await api.patch<ApiEnvelope<AdminAddon>>(
+    `/admin/addons/${addonId}`,
+    payload
+  );
+  return response.data.data;
+}
+
+export async function deleteAdminAddon(addonId: string) {
+  const response = await api.delete<ApiEnvelope<null>>(
+    `/admin/addons/${addonId}`
+  );
+  return response.data.data;
+}
+
 export async function updateAdminProviderService(
   providerId: string,
   serviceId: string,

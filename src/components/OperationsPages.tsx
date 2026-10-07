@@ -2,6 +2,7 @@
 
 import {
   ActivityLog,
+  AdminAddon,
   AdminDataRequest,
   AdminNotification,
   AdminPayment,
@@ -10,10 +11,15 @@ import {
   AdminService,
   AdminServicesPricing,
   AdminUser,
+  createAdminAddon,
+  createAdminCatalogService,
   createAdminPayout,
   createStaffAccount,
+  deleteAdminAddon,
+  deleteAdminCatalogService,
   deleteStaffAccount,
   getActivityLogs,
+  getAdminAddons,
   getAdminDataRequests,
   getAdminEarnings,
   getAdminNotifications,
@@ -26,6 +32,7 @@ import {
   getDashboardSettings,
   getStaffAccounts,
   getWashers,
+  updateAdminAddon,
   updateAdminMe,
   updateAdminDataRequest,
   updateAdminReportStatus,
@@ -56,6 +63,7 @@ import {
   FileText,
   Loader2,
   MessageSquareText,
+  Plus,
   ReceiptText,
   Save,
   ShieldCheck,
@@ -64,6 +72,7 @@ import {
   Trash2,
   TriangleAlert,
   UserRound,
+  X,
 } from "lucide-react";
 import { FormEvent, useEffect, useState } from "react";
 import { io } from "socket.io-client";
@@ -1816,7 +1825,15 @@ export function PayoutsPaymentsPageContent() {
   );
 }
 
-function CatalogServiceRow({ service }: { service: AdminService }) {
+function CatalogServiceRow({
+  service,
+  onDelete,
+  isDeleting,
+}: {
+  service: AdminService;
+  onDelete: () => void;
+  isDeleting: boolean;
+}) {
   const queryClient = useQueryClient();
   const [title, setTitle] = useState(service.title || "");
   const [price, setPrice] = useState(service.price.toString());
@@ -1902,6 +1919,17 @@ function CatalogServiceRow({ service }: { service: AdminService }) {
         <button className="approve-action" disabled={mutation.isPending} onClick={() => mutation.mutate()} type="button">
           <Save size={15} />
           Save
+        </button>
+        <button
+          aria-label={`Delete ${service.title || "service"}`}
+          className="mini-text-button"
+          disabled={isDeleting || mutation.isPending}
+          onClick={onDelete}
+          title="Delete service"
+          type="button"
+        >
+          <Trash2 size={15} />
+          Delete
         </button>
       </td>
     </tr>
@@ -2016,10 +2044,42 @@ function getProviderFromService(service: AdminService) {
 export function ServicesPricingPageContent() {
   const queryClient = useQueryClient();
   const user = useDashboardUser();
+  const [showAddService, setShowAddService] = useState(false);
+  const [showAddAddon, setShowAddAddon] = useState(false);
+  const [serviceMutationError, setServiceMutationError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<"services" | "addons">("services");
   const servicesQuery = useQuery({
     queryKey: ["admin-services-pricing"],
     queryFn: getAdminServicesPricing,
   });
+  const createServiceMutation = useMutation({
+    mutationFn: (
+      payload: Pick<AdminService, "title" | "serviceType" | "price" | "carSize" | "carName" | "carModel" | "description" | "isActive">
+    ) => createAdminCatalogService(payload),
+    onSuccess: () => {
+      setShowAddService(false);
+      setServiceMutationError(null);
+      queryClient.invalidateQueries({ queryKey: ["admin-services-pricing"] });
+    },
+    onError: (error) => setServiceMutationError(getApiErrorMessage(error)),
+  });
+  const deleteServiceMutation = useMutation({
+    mutationFn: (serviceId: string) => deleteAdminCatalogService(serviceId),
+    onSuccess: () => {
+      setServiceMutationError(null);
+      queryClient.invalidateQueries({ queryKey: ["admin-services-pricing"] });
+    },
+    onError: (error) => setServiceMutationError(getApiErrorMessage(error)),
+  });
+  const handleDeleteService = (service: AdminService) => {
+    if (
+      window.confirm(
+        `Delete service "${service.title || "Service"}"? This also removes it from all providers.`
+      )
+    ) {
+      deleteServiceMutation.mutate(service._id);
+    }
+  };
   const updateProviderServiceMutation = useMutation({
     mutationFn: ({
       providerId,
@@ -2084,6 +2144,38 @@ export function ServicesPricingPageContent() {
           <p>Platform-controlled service names, prices, provider availability, and daily wash limits.</p>
         </div>
       </div>
+      {serviceMutationError ? <p className="form-error">{serviceMutationError}</p> : null}
+      <div className="services-tabs">
+        <button
+          className={activeTab === "services" ? "filter-pill active" : "filter-pill"}
+          onClick={() => setActiveTab("services")}
+          type="button"
+        >
+          Services
+        </button>
+        <button
+          className={activeTab === "addons" ? "filter-pill active" : "filter-pill"}
+          onClick={() => setActiveTab("addons")}
+          type="button"
+        >
+          Add-ons
+        </button>
+      </div>
+      <div className="tab-actions-row">
+        {activeTab === "services" ? (
+          <button className="primary-button compact-action" onClick={() => setShowAddService(true)} type="button">
+            <Plus size={16} />
+            Add Service
+          </button>
+        ) : (
+          <button className="primary-button compact-action" onClick={() => setShowAddAddon(true)} type="button">
+            <Plus size={16} />
+            Add Add-on
+          </button>
+        )}
+      </div>
+      {activeTab === "services" ? (
+        <>
       <div className="summary-grid">
         <article className="stat-card">
           <span>Catalog Services</span>
@@ -2123,12 +2215,17 @@ export function ServicesPricingPageContent() {
               <th className="numeric-cell">Price</th>
               <th>Description</th>
               <th>Status</th>
-              <th>Save</th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody>
             {(data?.catalogServices || []).map((service) => (
-              <CatalogServiceRow key={service._id} service={service} />
+              <CatalogServiceRow
+                key={service._id}
+                onDelete={() => handleDeleteService(service)}
+                isDeleting={deleteServiceMutation.isPending}
+                service={service}
+              />
             ))}
           </tbody>
         </table>
@@ -2215,7 +2312,370 @@ export function ServicesPricingPageContent() {
           </table>
         </TableShell>
       </div>
+        </>
+      ) : (
+        <AddonsSection onCloseAddModal={() => setShowAddAddon(false)} showAddModal={showAddAddon} />
+      )}
+      {showAddService ? (
+        <AddServiceModal
+          error={createServiceMutation.error ? getApiErrorMessage(createServiceMutation.error) : null}
+          isSaving={createServiceMutation.isPending}
+          onCancel={() => setShowAddService(false)}
+          onSubmit={(payload) => createServiceMutation.mutate(payload)}
+        />
+      ) : null}
     </section>
+  );
+}
+
+type AdminCatalogServicePayload = Pick<
+  AdminService,
+  "title" | "serviceType" | "price" | "carSize" | "carName" | "carModel" | "description" | "isActive"
+>;
+
+function ServicesModalShell({
+  title,
+  onCancel,
+  children,
+}: {
+  title: string;
+  onCancel: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="training-modal-overlay" onClick={onCancel} role="presentation">
+      <div className="training-modal-panel" onClick={(event) => event.stopPropagation()} role="dialog">
+        <div className="data-page-header">
+          <h2 style={{ fontSize: 18, margin: 0 }}>{title}</h2>
+          <button aria-label="Close" className="mini-text-button" onClick={onCancel} type="button">
+            <X size={16} />
+          </button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function AddServiceModal({
+  onCancel,
+  onSubmit,
+  isSaving,
+  error,
+}: {
+  onCancel: () => void;
+  onSubmit: (payload: AdminCatalogServicePayload) => void;
+  isSaving: boolean;
+  error: string | null;
+}) {
+  const [title, setTitle] = useState("");
+  const [serviceType, setServiceType] = useState<AdminService["serviceType"]>("basic");
+  const [carSize, setCarSize] = useState<AdminService["carSize"]>("medium");
+  const [price, setPrice] = useState("");
+  const [carName, setCarName] = useState("Any car");
+  const [carModel, setCarModel] = useState("Any model");
+  const [description, setDescription] = useState("");
+  const [isActive, setIsActive] = useState(true);
+
+  const handleSubmit = (event: FormEvent) => {
+    event.preventDefault();
+    const parsedPrice = Number(price);
+    if (!title.trim() || !parsedPrice || parsedPrice <= 0) return;
+    onSubmit({
+      title: title.trim(),
+      serviceType,
+      price: parsedPrice,
+      carSize,
+      carName: carName.trim() || "Any car",
+      carModel: carModel.trim() || "Any model",
+      description: description.trim(),
+      isActive,
+    });
+  };
+
+  return (
+    <ServicesModalShell onCancel={onCancel} title="Add Service">
+      <form onSubmit={handleSubmit}>
+        <label className="form-field">
+          Title
+          <input className="table-input" onChange={(event) => setTitle(event.target.value)} required type="text" value={title} />
+        </label>
+        <label className="form-field">
+          Service type
+          <select className="table-select" onChange={(event) => setServiceType(event.target.value as AdminService["serviceType"])} value={serviceType}>
+            <option value="basic">Basic</option>
+            <option value="standard">Standard</option>
+            <option value="premium">Premium</option>
+          </select>
+        </label>
+        <label className="form-field">
+          Car size
+          <select className="table-select" onChange={(event) => setCarSize(event.target.value as AdminService["carSize"])} value={carSize}>
+            <option value="small">Small</option>
+            <option value="medium">Medium</option>
+            <option value="high">High</option>
+          </select>
+        </label>
+        <label className="form-field">
+          Price (£)
+          <input className="table-input" min="1" onChange={(event) => setPrice(event.target.value)} required type="number" value={price} />
+        </label>
+        <label className="form-field">
+          Car name
+          <input className="table-input" onChange={(event) => setCarName(event.target.value)} type="text" value={carName} />
+        </label>
+        <label className="form-field">
+          Car model
+          <input className="table-input" onChange={(event) => setCarModel(event.target.value)} type="text" value={carModel} />
+        </label>
+        <label className="form-field">
+          Description
+          <input className="table-input" onChange={(event) => setDescription(event.target.value)} type="text" value={description} />
+        </label>
+        <label className="check-label">
+          <input checked={isActive} onChange={(event) => setIsActive(event.target.checked)} type="checkbox" />
+          Active
+        </label>
+        {error ? <p className="form-error">{error}</p> : null}
+        <div className="modal-actions">
+          <button className="secondary-button" onClick={onCancel} type="button">
+            Cancel
+          </button>
+          <button className="primary-button" disabled={isSaving} type="submit">
+            {isSaving ? <Loader2 className="spin" size={16} /> : null}
+            Add Service
+          </button>
+        </div>
+      </form>
+    </ServicesModalShell>
+  );
+}
+
+function AddonRow({
+  addon,
+  onDelete,
+  isDeleting,
+}: {
+  addon: AdminAddon;
+  onDelete: () => void;
+  isDeleting: boolean;
+}) {
+  const queryClient = useQueryClient();
+  const [name, setName] = useState(addon.name);
+  const [price, setPrice] = useState(addon.price.toString());
+  const [description, setDescription] = useState(addon.description || "");
+  const [isActive, setIsActive] = useState(addon.isActive);
+  const mutation = useMutation({
+    mutationFn: () =>
+      updateAdminAddon(addon._id, {
+        name,
+        price: Number(price),
+        description,
+        isActive,
+      }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["admin-addons"] }),
+  });
+
+  useEffect(() => {
+    setName(addon.name);
+    setPrice(addon.price.toString());
+    setDescription(addon.description || "");
+    setIsActive(addon.isActive);
+  }, [addon]);
+
+  return (
+    <tr>
+      <td>
+        <input className="table-input" onChange={(event) => setName(event.target.value)} value={name} />
+      </td>
+      <td className="numeric-cell">
+        <input
+          className="table-input numeric-table-input"
+          min="1"
+          onChange={(event) => setPrice(event.target.value)}
+          type="number"
+          value={price}
+        />
+      </td>
+      <td>
+        <input className="table-input" onChange={(event) => setDescription(event.target.value)} value={description} />
+      </td>
+      <td>
+        <label className="check-label compact-check">
+          <input checked={isActive} onChange={(event) => setIsActive(event.target.checked)} type="checkbox" />
+          Active
+        </label>
+      </td>
+      <td>
+        <button className="approve-action" disabled={mutation.isPending} onClick={() => mutation.mutate()} type="button">
+          <Save size={15} />
+          Save
+        </button>
+        <button
+          aria-label={`Delete ${addon.name}`}
+          className="mini-text-button"
+          disabled={isDeleting || mutation.isPending}
+          onClick={onDelete}
+          title="Delete add-on"
+          type="button"
+        >
+          <Trash2 size={15} />
+          Delete
+        </button>
+      </td>
+    </tr>
+  );
+}
+
+function AddAddonModal({
+  onCancel,
+  onSubmit,
+  isSaving,
+  error,
+}: {
+  onCancel: () => void;
+  onSubmit: (payload: { name: string; price: number; description?: string; isActive: boolean }) => void;
+  isSaving: boolean;
+  error: string | null;
+}) {
+  const [name, setName] = useState("");
+  const [price, setPrice] = useState("");
+  const [description, setDescription] = useState("");
+  const [isActive, setIsActive] = useState(true);
+
+  const handleSubmit = (event: FormEvent) => {
+    event.preventDefault();
+    const parsedPrice = Number(price);
+    if (!name.trim() || !parsedPrice || parsedPrice <= 0) return;
+    onSubmit({
+      name: name.trim(),
+      price: parsedPrice,
+      description: description.trim() || undefined,
+      isActive,
+    });
+  };
+
+  return (
+    <ServicesModalShell onCancel={onCancel} title="Add Add-on">
+      <form onSubmit={handleSubmit}>
+        <label className="form-field">
+          Name
+          <input className="table-input" onChange={(event) => setName(event.target.value)} required type="text" value={name} />
+        </label>
+        <label className="form-field">
+          Price (£)
+          <input className="table-input" min="1" onChange={(event) => setPrice(event.target.value)} required type="number" value={price} />
+        </label>
+        <label className="form-field">
+          Description
+          <input className="table-input" onChange={(event) => setDescription(event.target.value)} type="text" value={description} />
+        </label>
+        <label className="check-label">
+          <input checked={isActive} onChange={(event) => setIsActive(event.target.checked)} type="checkbox" />
+          Active
+        </label>
+        {error ? <p className="form-error">{error}</p> : null}
+        <div className="modal-actions">
+          <button className="secondary-button" onClick={onCancel} type="button">
+            Cancel
+          </button>
+          <button className="primary-button" disabled={isSaving} type="submit">
+            {isSaving ? <Loader2 className="spin" size={16} /> : null}
+            Add Add-on
+          </button>
+        </div>
+      </form>
+    </ServicesModalShell>
+  );
+}
+
+export function AddonsSection({
+  onCloseAddModal,
+  showAddModal,
+}: {
+  onCloseAddModal: () => void;
+  showAddModal: boolean;
+}) {
+  const queryClient = useQueryClient();
+  const [mutationError, setMutationError] = useState<string | null>(null);
+  const addonsQuery = useQuery({
+    queryKey: ["admin-addons"],
+    queryFn: getAdminAddons,
+  });
+  const createMutation = useMutation({
+    mutationFn: (payload: { name: string; price: number; description?: string; isActive: boolean }) =>
+      createAdminAddon(payload),
+    onSuccess: () => {
+      onCloseAddModal();
+      setMutationError(null);
+      queryClient.invalidateQueries({ queryKey: ["admin-addons"] });
+    },
+    onError: (error) => setMutationError(getApiErrorMessage(error)),
+  });
+  const deleteMutation = useMutation({
+    mutationFn: (addonId: string) => deleteAdminAddon(addonId),
+    onSuccess: () => {
+      setMutationError(null);
+      queryClient.invalidateQueries({ queryKey: ["admin-addons"] });
+    },
+    onError: (error) => setMutationError(getApiErrorMessage(error)),
+  });
+
+  const handleDeleteAddon = (addon: AdminAddon) => {
+    if (window.confirm(`Delete add-on "${addon.name}"?`)) {
+      deleteMutation.mutate(addon._id);
+    }
+  };
+
+  const addons = addonsQuery.data || [];
+
+  return (
+    <>
+      <div className="data-page-header">
+        <div>
+          <h1>Add-ons</h1>
+          <p>Optional extras customers can add to a booking. Prices are managed here, not in the app.</p>
+        </div>
+      </div>
+      {mutationError ? <p className="form-error">{mutationError}</p> : null}
+      <TableShell>
+        <table className="admin-table">
+          <thead>
+            <tr>
+              <th>Add-on Name</th>
+              <th className="numeric-cell">Price</th>
+              <th>Description</th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {addons.map((addon) => (
+              <AddonRow
+                addon={addon}
+                isDeleting={deleteMutation.isPending}
+                key={addon._id}
+                onDelete={() => handleDeleteAddon(addon)}
+              />
+            ))}
+            {!addons.length && !addonsQuery.isLoading ? (
+              <tr>
+                <td colSpan={5}>No add-ons yet. Use &ldquo;Add Add-on&rdquo; to create the first one.</td>
+              </tr>
+            ) : null}
+          </tbody>
+        </table>
+        {addonsQuery.isLoading ? <EmptyState icon={<BadgePoundSterling size={22} />} text="Loading add-ons..." /> : null}
+      </TableShell>
+      {showAddModal ? (
+        <AddAddonModal
+          error={createMutation.error ? getApiErrorMessage(createMutation.error) : null}
+          isSaving={createMutation.isPending}
+          onCancel={onCloseAddModal}
+          onSubmit={(payload) => createMutation.mutate(payload)}
+        />
+      ) : null}
+    </>
   );
 }
 
