@@ -18,6 +18,7 @@ import {
   GraduationCap,
   Gauge,
   Landmark,
+  Radar,
   Settings,
   ShieldCheck,
   UserRoundCheck,
@@ -34,6 +35,7 @@ const navItems: Array<{
 }> = [
   { key: "dashboard", label: "Dashboard", href: "/dashboard", icon: Gauge },
   { key: "bookings", label: "Bookings", href: "/bookings", icon: CalendarCheck },
+  { key: "tracking", label: "Live Tracking", href: "/tracking", icon: Radar },
   { key: "washers", label: "Washers", href: "/washers", icon: UserRoundCheck },
   { key: "washers", label: "Training", href: "/training", icon: GraduationCap },
   { key: "customers", label: "Customers", href: "/customers", icon: UsersRound },

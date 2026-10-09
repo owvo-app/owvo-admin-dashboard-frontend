@@ -3,6 +3,7 @@ import type { DashboardUser } from "@/lib/auth-storage";
 export type DashboardMenuKey =
   | "dashboard"
   | "bookings"
+  | "tracking"
   | "washers"
   | "customers"
   | "provider-verification"
@@ -18,6 +19,7 @@ export type DashboardMenuKey =
 export const dashboardMenuOrder: Array<{ key: DashboardMenuKey; href: string }> = [
   { key: "dashboard", href: "/dashboard" },
   { key: "bookings", href: "/bookings" },
+  { key: "tracking", href: "/tracking" },
   { key: "washers", href: "/washers" },
   { key: "customers", href: "/customers" },
   { key: "provider-verification", href: "/provider-verification" },
@@ -34,6 +36,7 @@ export const dashboardMenuOrder: Array<{ key: DashboardMenuKey; href: string }> 
 const routeMenuMap: Record<string, DashboardMenuKey> = {
   "/dashboard": "dashboard",
   "/bookings": "bookings",
+  "/tracking": "tracking",
   "/washers": "washers",
   "/customers": "customers",
   "/provider-verification": "provider-verification",
