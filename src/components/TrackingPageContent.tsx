@@ -26,8 +26,6 @@ import {
 } from "@/lib/tracking-api";
 import {
   statusMeta,
-  trackingBookings,
-  trackingStats,
   type TrackingBooking,
   type TrackingStatus,
 } from "@/lib/tracking-mock";
@@ -152,8 +150,13 @@ export function TrackingPageContent() {
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [tick, setTick] = useState(0);
 
-  // Real API — 20s polling. Fail ho to mock data fallback.
-  const { data: live, refetch } = useQuery({
+  // Real API — 20s polling. Koi mock fallback nahi: khali ho to khali dikhao.
+  const {
+    data: live,
+    isLoading,
+    isError,
+    refetch,
+  } = useQuery({
     queryKey: ["tracking-live"],
     queryFn: getTrackingLive,
     refetchInterval: autoRefresh ? 20000 : false,
@@ -161,21 +164,24 @@ export function TrackingPageContent() {
     staleTime: 15000,
   });
 
-  const usingLive = !!live && live.bookings.length > 0;
-  const stats = live?.stats ?? trackingStats;
+  const emptyStats = {
+    activeBookings: 0,
+    washersOnline: 0,
+    inProgress: 0,
+    completedToday: 0,
+    customersTravelling: 0,
+  };
+  const stats = live?.stats ?? emptyStats;
   const providerStatus = live?.providerStatus;
-  const topAreas = live?.topAreas?.length ? live.topAreas : undefined;
-  const recentActivity = live?.recentActivity?.length
-    ? live.recentActivity
-    : undefined;
+  const recentActivity = live?.recentActivity ?? [];
 
   const bookings = useMemo(() => {
-    const list: TrackingBooking[] = usingLive
-      ? live!.bookings.map(mapApiBooking)
-      : trackingBookings;
+    const list: TrackingBooking[] = live
+      ? live.bookings.map(mapApiBooking)
+      : [];
     void tick; // manual refresh
     return filter === "all" ? list : list.filter((b) => b.status === filter);
-  }, [filter, tick, live, usingLive]);
+  }, [filter, tick, live]);
 
   return (
     <div className="tracking-page">
@@ -208,6 +214,39 @@ export function TrackingPageContent() {
           </button>
         </div>
       </div>
+
+      {isError && (
+        <div
+          style={{
+            background: "#FEF2F2",
+            border: "1px solid #FECACA",
+            color: "#B91C1C",
+            padding: "12px 16px",
+            borderRadius: "10px",
+            marginBottom: "16px",
+            fontSize: "14px",
+            fontWeight: 600,
+          }}
+        >
+          ⚠️ Could not load live tracking data. Check your internet connection
+          and{" "}
+          <button
+            onClick={() => refetch()}
+            style={{
+              textDecoration: "underline",
+              fontWeight: 700,
+              background: "none",
+              border: "none",
+              color: "#B91C1C",
+              cursor: "pointer",
+              fontSize: "14px",
+            }}
+          >
+            try again
+          </button>
+          .
+        </div>
+      )}
 
       <div className="metric-grid tracking-stats">
         <StatCard
@@ -302,7 +341,11 @@ export function TrackingPageContent() {
             Active bookings ({bookings.length})
           </h2>
           <div className="tracking-list-scroll">
-            {bookings.map((b) => (
+            {isLoading && (
+              <p className="tracking-empty">Loading live bookings…</p>
+            )}
+            {!isLoading &&
+              bookings.map((b) => (
               <BookingCard
                 key={b.id}
                 booking={b}
@@ -312,9 +355,9 @@ export function TrackingPageContent() {
                 }
               />
             ))}
-            {bookings.length === 0 && (
+            {!isLoading && bookings.length === 0 && !isError && (
               <p className="tracking-empty">
-                No bookings with this status right now.
+                No active bookings right now.
               </p>
             )}
           </div>
@@ -324,7 +367,7 @@ export function TrackingPageContent() {
       <div className="tracking-bottom-grid">
         <ProviderStatusCard data={providerStatus} />
         <BookingStatsCard />
-        <TopAreasCard areas={topAreas} />
+        <TopAreasCard />
         <RecentActivityCard items={recentActivity} />
       </div>
     </div>

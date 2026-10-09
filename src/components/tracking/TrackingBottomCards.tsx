@@ -7,12 +7,7 @@ import {
   getBookingStats,
   type BookingStatsRange,
 } from "@/lib/tracking-api";
-import {
-  bookingStatsHourly,
-  providerStatusData,
-  recentActivity,
-  topAreas,
-} from "@/lib/tracking-mock";
+
 
 // ── 1. Provider Status (donut chart, pure SVG) ──────────────
 export function ProviderStatusCard({
@@ -20,7 +15,12 @@ export function ProviderStatusCard({
 }: {
   data?: { total: number; online: number; busy: number; offline: number };
 }) {
-  const { total, online, busy, offline } = data ?? providerStatusData;
+  const { total, online, busy, offline } = data ?? {
+    total: 0,
+    online: 0,
+    busy: 0,
+    offline: 0,
+  };
   const r = 54;
   const c = 2 * Math.PI * r;
   const segs = [
@@ -74,7 +74,7 @@ export function ProviderStatusCard({
               <i style={{ background: s.color }} />
               {s.label}
               <strong>
-                {s.value} ({Math.round((s.value / total) * 100)}%)
+                {s.value} ({total > 0 ? Math.round((s.value / total) * 100) : 0}%)
               </strong>
             </li>
           ))}
@@ -87,21 +87,17 @@ export function ProviderStatusCard({
 // ── 2. Booking Statistics (stacked bar chart, real data) ─────
 export function BookingStatsCard() {
   const [range, setRange] = useState<BookingStatsRange>("today");
-  const { data } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: ["tracking-booking-stats", range],
     queryFn: () => getBookingStats(range),
     retry: 1,
     staleTime: 30000,
   });
 
-  const hourly = data?.buckets?.length
-    ? data.buckets
-    : bookingStatsHourly.map((h) => ({
-        label: h.hour,
-        completed: h.completed,
-        active: h.active,
-        cancelled: h.cancelled,
-      }));
+  const hourly = data?.buckets ?? [];
+  const hasData = hourly.some(
+    (h) => h.completed + h.active + h.cancelled > 0
+  );
 
   const max = Math.max(
     ...hourly.map((h) => h.completed + h.active + h.cancelled),
@@ -121,6 +117,15 @@ export function BookingStatsCard() {
           <option value="month">This month</option>
         </select>
       </div>
+      {isLoading ? (
+        <p className="tracking-empty">Loading…</p>
+      ) : isError ? (
+        <p className="tracking-empty">⚠️ Could not load statistics.</p>
+      ) : !hasData ? (
+        <p className="tracking-empty">
+          No booking data available for this period.
+        </p>
+      ) : (
       <div className="bars-wrap">
         {hourly.map((h) => {
           return (
@@ -144,6 +149,7 @@ export function BookingStatsCard() {
           );
         })}
       </div>
+      )}
       <div className="bars-legend">
         <span>
           <i style={{ background: "#22a355" }} /> Completed
@@ -166,14 +172,14 @@ export function TopAreasCard({
   areas?: Array<{ name: string; bookings: number }>;
 }) {
   const [range, setRange] = useState<BookingStatsRange>("today");
-  const { data } = useQuery({
+  const { data, isLoading, isError } = useQuery({
     queryKey: ["tracking-booking-stats", range],
     queryFn: () => getBookingStats(range),
     retry: 1,
     staleTime: 30000,
   });
 
-  const list = data?.topAreas?.length ? data.topAreas : (areas ?? topAreas);
+  const list = data?.topAreas?.length ? data.topAreas : (areas ?? []);
   const max = Math.max(...list.map((a) => a.bookings), 1);
   return (
     <div className="panel tracking-bottom-card">
@@ -189,6 +195,15 @@ export function TopAreasCard({
           <option value="month">This month</option>
         </select>
       </div>
+      {isLoading ? (
+        <p className="tracking-empty">Loading…</p>
+      ) : isError ? (
+        <p className="tracking-empty">⚠️ Could not load areas.</p>
+      ) : list.length === 0 ? (
+        <p className="tracking-empty">
+          No area data available for this period.
+        </p>
+      ) : (
       <ol className="areas-list">
         {list.map((a, i) => (
           <li key={a.name}>
@@ -201,6 +216,7 @@ export function TopAreasCard({
           </li>
         ))}
       </ol>
+      )}
     </div>
   );
 }
@@ -212,13 +228,16 @@ export function RecentActivityCard({
   items?: Array<{ time: string; text: string; color: "red" | "blue" | "green" }>;
 }) {
   const colors = { red: "#e5484d", blue: "#2369e8", green: "#22a355" };
-  const list = items ?? recentActivity;
+  const list = items ?? [];
   return (
     <div className="panel tracking-bottom-card">
       <div className="tracking-card-head">
         <h3>Recent Activity</h3>
         <Link className="link-btn" href="/system-logs">View All ›</Link>
       </div>
+      {list.length === 0 ? (
+        <p className="tracking-empty">No recent activity.</p>
+      ) : (
       <ul className="activity-list">
         {list.map((a, i) => (
           <li key={i}>
@@ -228,6 +247,7 @@ export function RecentActivityCard({
           </li>
         ))}
       </ul>
+      )}
     </div>
   );
 }
