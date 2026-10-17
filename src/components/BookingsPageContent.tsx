@@ -190,9 +190,17 @@ export function BookingsPageContent() {
     );
   });
 
-  // Unique services for filter dropdown
+  // Unique services for filter dropdown (dedupe by title)
   const serviceOptions = Array.from(
-    new Map(allBookings.map((b) => [b.service?._id || b.service?.title, b.service?.title || "Unknown"])).entries()
+    new Map(
+      allBookings
+        .map((b) => {
+          const title = typeof b.service === "string" ? b.service : b.service?.title;
+          const id = typeof b.service === "string" ? b.service : b.service?._id || title;
+          return title ? [title, { id, title }] : null;
+        })
+        .filter(Boolean) as [string, { id: string; title: string }][]
+    ).values()
   );
 
   const summaryCounts = {
@@ -311,8 +319,8 @@ export function BookingsPageContent() {
           onChange={(e) => setServiceFilter(e.target.value)}
         >
           <option value="all">All Services</option>
-          {serviceOptions.map(([id, title]) => (
-            <option key={id} value={id}>{title}</option>
+          {serviceOptions.map((s) => (
+            <option key={s.id} value={s.title}>{s.title}</option>
           ))}
         </select>
         <button
