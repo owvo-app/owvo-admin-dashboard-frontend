@@ -140,7 +140,11 @@ export function BookingDetailPanel({
                 <h4>Booking Information</h4>
                 <div className="booking-panel-row"><span>Service</span><strong>{booking.service?.title || "—"}</strong></div>
                 <div className="booking-panel-row"><span>Vehicle</span><strong>{(booking as any).vehicle?.model || (booking as any).vehicleSnapshot?.model || "—"}</strong></div>
-                <div className="booking-panel-row"><span>Location</span><strong>{(booking as any).address || "—"}</strong></div>
+                <div className="booking-panel-row"><span>Location</span><strong>{
+                  typeof (booking as any).address === "string"
+                    ? (booking as any).address
+                    : (booking as any).address?.addressLine || (booking as any).address?.formatted || "—"
+                }</strong></div>
                 <div className="booking-panel-row"><span>Scheduled</span><strong>{booking.bookingDate ? format(new Date(booking.bookingDate), "dd MMM yyyy, hh:mm a") : "—"}</strong></div>
               </div>
 
