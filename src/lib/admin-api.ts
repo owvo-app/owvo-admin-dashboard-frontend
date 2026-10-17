@@ -968,3 +968,26 @@ export async function resetProviderTraining(providerId: string) {
   );
   return response.data.data;
 }
+
+export type AdminBookingDetail = AdminBooking & {
+  addons?: { title?: string; price?: number }[];
+  addonsTotal?: number;
+  price?: number;
+  discountPrice?: number;
+  coupon?: { code?: string };
+  payment?: { status?: string; stripePaymentIntentId?: string; paidAt?: string };
+  vehicle?: { registrationNo?: string; make?: string; model?: string; year?: number; size?: string };
+  vehicleSnapshot?: { registrationNo?: string; make?: string; model?: string };
+  arrivedAt?: string; completedAt?: string; cancelledAt?: string;
+  cancellationReason?: string; cancelledBy?: string;
+  user?: AdminBooking["user"] & { phoneNumber?: string };
+  provider?: AdminBooking["provider"] & { phoneNumber?: string };
+  service?: AdminBooking["service"] & { price?: number };
+};
+
+export async function getAdminBookingById(bookingId: string) {
+  const response = await api.get<ApiEnvelope<AdminBookingDetail>>(
+    `/admin/bookings/${bookingId}`
+  );
+  return response.data.data;
+}

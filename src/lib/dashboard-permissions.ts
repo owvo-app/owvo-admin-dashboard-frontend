@@ -44,6 +44,9 @@ const routeMenuMap: Record<string, DashboardMenuKey> = {
   "/earnings": "earnings",
   "/reports": "reports",
   "/issue-reports": "reports",
+  "/support-disputes": "reports",
+  "/provider-opportunities": "washers",
+  "/reports-analytics": "reports",
   "/data-requests": "data-requests",
   "/staff-management": "staff-management",
   "/notifications": "notifications",
@@ -80,5 +83,3 @@ export function getDefaultDashboardHref(user: DashboardUser | null | undefined) 
   const firstMenu = dashboardMenuOrder.find((item) => menus.includes(item.key));
   return firstMenu?.href || "/login";
 }
-
-

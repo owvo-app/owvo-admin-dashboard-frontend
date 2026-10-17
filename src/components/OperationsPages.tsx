@@ -50,6 +50,8 @@ import { getDashboardSocketOptions } from "@/lib/socket";
 import { initials, money } from "@/lib/format";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
+import WashersMap from "@/components/washers/WashersMap";
+
 import {
   Bell,
   BadgePoundSterling,
@@ -1420,6 +1422,7 @@ export function WashersPageContent() {
           <p>Provider records, live status, verification, ratings, and enforcement state.</p>
         </div>
       </div>
+      <WashersMap washers={washers} />
       <TableShell>
         <table className="admin-table">
           <thead>
@@ -1434,8 +1437,11 @@ export function WashersPageContent() {
             </tr>
           </thead>
           <tbody>
-            {washers.map((washer) => (
-              <tr key={washer._id}>
+           {washers.map((washer) => (
+            <tr key={washer._id}
+            className="clickable-row"
+            onClick={() => (window.location.href = `/washers/${washer._id}`)}
+            >
                 <td>
                   <AvatarName user={washer} fallback="Washer" />
                 </td>

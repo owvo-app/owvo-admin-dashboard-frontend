@@ -11,13 +11,16 @@ import { initials } from "@/lib/format";
 import {
   Bell,
   BadgePoundSterling,
+  BarChart3,
   BookOpenCheck,
+  Briefcase,
   CalendarCheck,
   ChevronRight,
   Database,
   GraduationCap,
   Gauge,
   Landmark,
+  LifeBuoy,
   Radar,
   Settings,
   ShieldCheck,
@@ -27,36 +30,87 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
-const navItems: Array<{
+type NavItem = {
   key: DashboardMenuKey;
   label: string;
   href: string;
   icon: LucideIcon;
-}> = [
-  { key: "dashboard", label: "Dashboard", href: "/dashboard", icon: Gauge },
-  { key: "bookings", label: "Bookings", href: "/bookings", icon: CalendarCheck },
-  { key: "tracking", label: "Live Tracking", href: "/tracking", icon: Radar },
-  { key: "washers", label: "Washers", href: "/washers", icon: UserRoundCheck },
-  { key: "washers", label: "Training", href: "/training", icon: GraduationCap },
-  { key: "customers", label: "Customers", href: "/customers", icon: UsersRound },
-  { key: "provider-verification", label: "Providers Verification", href: "/provider-verification", icon: ShieldCheck },
-  { key: "payouts-payments", label: "Payouts & Payments", href: "/payouts-payments", icon: WalletCards },
-  { key: "earnings", label: "Earnings", href: "/earnings", icon: Landmark },
-  { key: "reports", label: "Services & Pricing", href: "/reports", icon: BadgePoundSterling },
-  { key: "data-requests", label: "Data Requests", href: "/data-requests", icon: Database },
-  { key: "staff-management", label: "Staff Management", href: "/staff-management", icon: UsersRound },
-  { key: "notifications", label: "Notifications", href: "/notifications", icon: Bell },
-  { key: "settings", label: "Settings", href: "/settings", icon: Settings },
-  { key: "system-logs", label: "System Logs", href: "/system-logs", icon: BookOpenCheck }
+  badge?: number;
+};
+
+type NavSection = {
+  label: string | null;
+  items: NavItem[];
+};
+
+const navSections: NavSection[] = [
+  {
+    label: null,
+    items: [
+      { key: "dashboard", label: "Dashboard", href: "/dashboard", icon: Gauge },
+      { key: "bookings", label: "Bookings", href: "/bookings", icon: CalendarCheck },
+      { key: "tracking", label: "Live Tracking", href: "/tracking", icon: Radar },
+      { key: "reports", label: "Support & Disputes", href: "/support-disputes", icon: LifeBuoy, badge: 5 },
+      { key: "payouts-payments", label: "Payments & Refunds", href: "/payouts-payments", icon: WalletCards },
+    ],
+  },
+  {
+    label: "MANAGEMENT",
+    items: [
+      { key: "washers", label: "Providers", href: "/washers", icon: UserRoundCheck },
+      { key: "customers", label: "Customers", href: "/customers", icon: UsersRound },
+      { key: "reports", label: "Services & Pricing", href: "/reports", icon: BadgePoundSterling },
+      { key: "washers", label: "Provider Opportunities", href: "/provider-opportunities", icon: Briefcase },
+      { key: "washers", label: "Training", href: "/training", icon: GraduationCap },
+    ],
+  },
+  {
+    label: "REPORTS",
+    items: [
+      { key: "reports", label: "Reports & Analytics", href: "/reports-analytics", icon: BarChart3 },
+      { key: "earnings", label: "Earnings", href: "/earnings", icon: Landmark },
+    ],
+  },
+  {
+    label: "SYSTEM",
+    items: [
+      { key: "data-requests", label: "Data Requests", href: "/data-requests", icon: Database },
+      { key: "staff-management", label: "Staff Management", href: "/staff-management", icon: UsersRound },
+      { key: "notifications", label: "Notifications", href: "/notifications", icon: Bell, badge: 3 },
+      { key: "settings", label: "Settings", href: "/settings", icon: Settings },
+      { key: "system-logs", label: "System Logs", href: "/system-logs", icon: BookOpenCheck },
+    ],
+  },
 ];
 
 export function Sidebar() {
   const pathname = usePathname();
   const user = useDashboardUser();
-  const visibleItems =
-    user?.role === "staff"
-      ? navItems.filter((item) => canAccessMenu(user, item.key))
-      : navItems;
+  const isStaff = user?.role === "staff";
+  const visibleSections = navSections
+    .map((section) => ({
+      ...section,
+      items: isStaff
+        ? section.items.filter((item) => canAccessMenu(user, item.key))
+        : section.items,
+    }))
+    .filter((section) => section.items.length > 0);
+
+  const renderItem = (item: NavItem) => {
+    const Icon = item.icon;
+    const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+    return (
+      <Link
+        className={active ? "sidebar-link active" : "sidebar-link"}
+        href={item.href}
+        key={item.href}
+      >
+        <Icon aria-hidden="true" />
+        <span>{item.label}</span>
+        {item.badge ? <span className="sidebar-badge">{item.badge}</span> : null}
+      </Link>
+    );
+  };
 
   return (
     <aside className="sidebar">
@@ -65,23 +119,16 @@ export function Sidebar() {
         <span className="brand-word">owvo</span>
       </div>
 
-      <div className="sidebar-section-label">Main</div>
-      <nav className="sidebar-nav" aria-label="Primary">
-        {visibleItems.map((item) => {
-          const Icon = item.icon;
-          const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
-          return (
-            <Link
-              className={active ? "sidebar-link active" : "sidebar-link"}
-              href={item.href}
-              key={item.href}
-            >
-              <Icon aria-hidden="true" />
-              <span>{item.label}</span>
-            </Link>
-          );
-        })}
-      </nav>
+      {visibleSections.map((section, idx) => (
+        <div key={section.label || `main-${idx}`}>
+          {section.label ? (
+            <div className="sidebar-section-label">{section.label}</div>
+          ) : null}
+          <nav className="sidebar-nav" aria-label={section.label || "Primary"}>
+            {section.items.map(renderItem)}
+          </nav>
+        </div>
+      ))}
 
       <Link className="sidebar-profile" href="/settings">
         <div className="avatar">{initials(user?.name || user?.email, "A")}</div>
