@@ -985,6 +985,18 @@ export type AdminBookingDetail = AdminBooking & {
   service?: AdminBooking["service"] & { price?: number };
 };
 
+export async function createAdminBooking(data: {
+  customerId: string;
+  providerId: string;
+  serviceId: string;
+  bookingDate: string;
+  address: string;
+  notes?: string;
+}) {
+  const response = await api.post<ApiEnvelope<any>>("/admin/bookings", data);
+  return response.data.data;
+}
+
 export async function getAdminBookingById(bookingId: string) {
   const response = await api.get<ApiEnvelope<AdminBookingDetail>>(
     `/admin/bookings/${bookingId}`
