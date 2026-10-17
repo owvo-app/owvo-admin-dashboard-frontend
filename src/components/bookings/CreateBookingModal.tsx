@@ -46,9 +46,17 @@ export function CreateBookingModal({ onClose }: { onClose: () => void }) {
     createMutation.mutate({ customerId, providerId, serviceId, bookingDate: datetime, address: address.trim(), notes: notes.trim() });
   };
 
-  const customers = (customersQuery.data as any)?.items ?? customersQuery.data ?? [];
-  const washers = (washersQuery.data as any) ?? [];
-  const services = (servicesQuery.data as any)?.services ?? servicesQuery.data ?? [];
+  const toArray = (d: any): any[] => {
+    if (!d) return [];
+    if (Array.isArray(d)) return d;
+    if (Array.isArray(d.items)) return d.items;
+    if (Array.isArray(d.services)) return d.services;
+    if (Array.isArray(d.data)) return d.data;
+    return [];
+  };
+  const customers = toArray(customersQuery.data);
+  const washers = toArray(washersQuery.data);
+  const services = toArray(servicesQuery.data);
 
   return (
     <div className="booking-panel-overlay" onClick={onClose}>
@@ -63,7 +71,7 @@ export function CreateBookingModal({ onClose }: { onClose: () => void }) {
           <label className="modal-label">Customer *</label>
           <select className="modal-input" value={customerId} onChange={(e) => setCustomerId(e.target.value)}>
             <option value="">Select customer...</option>
-            {(Array.isArray(customers) ? customers : []).map((c: any) => (
+            {customers.map((c: any) => (
               <option key={c._id} value={c._id}>{c.name} — {c.email}</option>
             ))}
           </select>
@@ -71,7 +79,7 @@ export function CreateBookingModal({ onClose }: { onClose: () => void }) {
           <label className="modal-label">Provider *</label>
           <select className="modal-input" value={providerId} onChange={(e) => setProviderId(e.target.value)}>
             <option value="">Select provider...</option>
-            {(Array.isArray(washers) ? washers : []).map((w: any) => (
+            {washers.map((w: any) => (
               <option key={w._id} value={w._id}>{w.name} {w.isOnline ? "(Online)" : "(Offline)"}</option>
             ))}
           </select>
@@ -79,7 +87,7 @@ export function CreateBookingModal({ onClose }: { onClose: () => void }) {
           <label className="modal-label">Service *</label>
           <select className="modal-input" value={serviceId} onChange={(e) => setServiceId(e.target.value)}>
             <option value="">Select service...</option>
-            {(Array.isArray(services) ? services : []).map((s: any) => (
+            {services.map((s: any) => (
               <option key={s._id} value={s._id}>{s.title} — £{s.price}</option>
             ))}
           </select>

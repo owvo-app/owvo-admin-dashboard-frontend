@@ -35,6 +35,24 @@ export function BookingDetailPanel({
 
   if (!bookingId) return null;
 
+  if (detailQuery.isError) {
+    return (
+      <div className="booking-panel-overlay" onClick={onClose}>
+        <div className="booking-panel" onClick={(e) => e.stopPropagation()}>
+          <div className="booking-panel-header">
+            <strong>Error</strong>
+            <button className="mini-icon-button" onClick={onClose} type="button">
+              <X size={18} />
+            </button>
+          </div>
+          <div className="booking-panel-body">
+            <p>Could not load booking details. Please try again.</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const tabs = ["Overview", "Timeline", "Payment", "Notes", "Dispute"];
 
   return (
@@ -42,7 +60,7 @@ export function BookingDetailPanel({
       <div className="booking-panel" onClick={(e) => e.stopPropagation()}>
         <div className="booking-panel-header">
           <div>
-            <strong>#{booking?._id.slice(-6).toUpperCase() || "..."}</strong>
+            <strong>#{booking?._id ? booking._id.slice(-6).toUpperCase() : "..."}</strong>
             <span className={`table-status ${booking?.status || ""}`}>
               {statusLabels[booking?.status || ""] || booking?.status}
             </span>
