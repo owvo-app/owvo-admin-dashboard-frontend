@@ -4158,3 +4158,36 @@ a {
   box-sizing: border-box;
 }
 .modal-input:focus { outline: none; border-color: #6c2bd9; }
+
+
+/* Support tickets */
+.ticket-type, .ticket-status, .ticket-priority {
+  font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 12px;
+  white-space: nowrap; text-transform: capitalize;
+}
+.ticket-type.complaint { background: #fce8e6; color: #d93025; }
+.ticket-type.refund { background: #e8f0fe; color: #2369e8; }
+.ticket-type.dispute { background: #fef7e0; color: #e37400; }
+.ticket-type.technical { background: #f3e8ff; color: #8b5cf6; }
+.ticket-type.cancellation { background: #fef7e0; color: #b7791f; }
+.ticket-type.payment { background: #e6f4ea; color: #22a355; }
+.ticket-status.open { background: #fce8e6; color: #d93025; }
+.ticket-status.inprogress { background: #fef7e0; color: #e37400; }
+.ticket-status.resolved { background: #e6f4ea; color: #22a355; }
+.ticket-status.closed { background: #f0f0f0; color: #666; }
+.ticket-priority.high { background: #fce8e6; color: #d93025; }
+.ticket-priority.medium { background: #fef7e0; color: #e37400; }
+.ticket-priority.low { background: #e6f4ea; color: #22a355; }
+.ticket-desc {
+  background: #f9fafb; border: 1px solid #f0f0f0; border-radius: 8px;
+  padding: 12px; font-size: 13px; line-height: 1.5; margin: 0;
+}
+.ticket-messages { display: flex; flex-direction: column; gap: 10px; margin-bottom: 16px; }
+.ticket-msg { border-radius: 10px; padding: 10px 12px; font-size: 13px; }
+.ticket-msg.user { background: #f3f4f6; align-self: flex-start; max-width: 90%; }
+.ticket-msg.admin { background: #e8f0fe; align-self: flex-end; max-width: 90%; }
+.ticket-msg-head { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+.ticket-msg-head strong { font-size: 12px; }
+.ticket-msg-head span { font-size: 11px; color: #888; }
+.ticket-msg p { margin: 0; }
+.ticket-reply { border-top: 1px solid #f0f0f0; padding-top: 12px; }

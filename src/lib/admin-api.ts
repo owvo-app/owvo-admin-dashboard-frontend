@@ -1003,3 +1003,61 @@ export async function getAdminBookingById(bookingId: string) {
   );
   return response.data.data;
 }
+
+
+// ─── Support Tickets ───
+export type SupportTicket = {
+  _id: string;
+  ticketNumber: string;
+  subject: string;
+  description: string;
+  type: "complaint" | "refund" | "dispute" | "technical" | "cancellation" | "payment";
+  priority: "low" | "medium" | "high";
+  status: "open" | "in_progress" | "resolved" | "closed";
+  reporter?: { _id: string; name?: string; email?: string; phoneNumber?: string; role?: string };
+  reporterRole?: string;
+  booking?: { _id: string; bookingDate?: string; status?: string; finalPrice?: number };
+  reportedUser?: { _id: string; name?: string; role?: string };
+  assignedTo?: { _id: string; name?: string; email?: string };
+  adminNotes?: string;
+  resolutionNote?: string;
+  resolvedAt?: string;
+  messages?: { sender?: { name?: string; role?: string }; senderRole?: string; text?: string; createdAt?: string }[];
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export type AdminTicketsResponse = {
+  items: SupportTicket[];
+  total: number;
+  page: number;
+  limit: number;
+  statusCounts: { open: number; in_progress: number; resolved: number; closed: number; total: number };
+};
+
+export async function getAdminTickets(params?: { status?: string; type?: string; search?: string }) {
+  const query = new URLSearchParams();
+  if (params?.status && params.status !== "all") query.set("status", params.status);
+  if (params?.type && params.type !== "all") query.set("type", params.type);
+  if (params?.search) query.set("search", params.search);
+  const qs = query.toString() ? `?${query.toString()}` : "";
+  const response = await api.get<ApiEnvelope<AdminTicketsResponse>>(`/admin/tickets${qs}`);
+  return response.data.data;
+}
+
+export async function getAdminTicketById(ticketId: string) {
+  const response = await api.get<ApiEnvelope<SupportTicket>>(`/admin/tickets/${ticketId}`);
+  return response.data.data;
+}
+
+export async function updateAdminTicket(ticketId: string, data: {
+  status?: string; priority?: string; assignedTo?: string | null; adminNotes?: string; resolutionNote?: string;
+}) {
+  const response = await api.patch<ApiEnvelope<SupportTicket>>(`/admin/tickets/${ticketId}`, data);
+  return response.data.data;
+}
+
+export async function adminReplyToTicket(ticketId: string, text: string) {
+  const response = await api.post<ApiEnvelope<SupportTicket>>(`/admin/tickets/${ticketId}/messages`, { text });
+  return response.data.data;
+}
