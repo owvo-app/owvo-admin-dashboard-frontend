@@ -4399,3 +4399,33 @@ a {
 }
 .opp-places-dropdown button:hover { background: #f8fafc; }
 .opp-places-dropdown button:last-child { border-bottom: none; }
+
+
+
+/* Opportunity action menu */
+.opp-action-menu {
+  position: absolute;
+  right: 0;
+  top: 100%;
+  z-index: 20;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+  min-width: 140px;
+  padding: 4px;
+}
+.opp-action-menu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 12px;
+  font-size: 13px;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.opp-action-menu button:hover { background: #f3f4f6; }
+.opp-action-menu button.danger { color: #d93025; }
+.opp-action-menu button.danger:hover { background: #fce8e6; }

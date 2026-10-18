@@ -19,8 +19,10 @@ import { useSearchParams } from "next/navigation";
 import { CreateOpportunityPanel } from "./opportunities/CreateOpportunityPanel";
 import {
   approvePayout,
+  deleteOpportunity,
   getBonusPayouts,
   getOpportunityProgress,
+  updateOpportunity,
 } from "@/lib/admin-api";
 import { useMutation } from "@tanstack/react-query";
 
@@ -48,6 +50,8 @@ export function OpportunitiesPageContent() {
   const [typeFilter, setTypeFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [showCreate, setShowCreate] = useState(false);
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
   const searchParams = useSearchParams();
 
   useEffect(() => {
@@ -78,6 +82,24 @@ export function OpportunitiesPageContent() {
     queryKey: ["bonus-payouts"],
     queryFn: () => getBonusPayouts(),
     enabled: activeTab === "payouts",
+  });
+
+  const statusMutation = useMutation({
+    mutationFn: ({ id, status }: { id: string; status: string }) =>
+      updateOpportunity(id, { status: status as any }),
+    onSuccess: () => {
+      oppQuery.refetch();
+      setOpenMenuId(null);
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => deleteOpportunity(id),
+    onSuccess: () => {
+      oppQuery.refetch();
+      setDeleteId(null);
+      setOpenMenuId(null);
+    },
   });
 
   const payoutMutation = useMutation({
@@ -250,10 +272,43 @@ export function OpportunitiesPageContent() {
                             {o.status}
                           </span>
                         </td>
-                        <td>
-                          <button className="mini-icon-button" type="button" title="Actions">
+                        <td style={{ position: "relative" }}>
+                          <button
+                            className="mini-icon-button"
+                            type="button"
+                            title="Actions"
+                            onClick={() => setOpenMenuId(openMenuId === o._id ? null : o._id)}
+                          >
                             •••
                           </button>
+                          {openMenuId === o._id && (
+                            <div className="opp-action-menu">
+                              {o.status === "active" ? (
+                                <button
+                                  type="button"
+                                  onClick={() => statusMutation.mutate({ id: o._id, status: "paused" })}
+                                  disabled={statusMutation.isPending}
+                                >
+                                  ⏸ Pause
+                                </button>
+                              ) : o.status === "paused" ? (
+                                <button
+                                  type="button"
+                                  onClick={() => statusMutation.mutate({ id: o._id, status: "active" })}
+                                  disabled={statusMutation.isPending}
+                                >
+                                  ▶ Resume
+                                </button>
+                              ) : null}
+                              <button
+                                type="button"
+                                className="danger"
+                                onClick={() => setDeleteId(o._id)}
+                              >
+                                🗑 Delete
+                              </button>
+                            </div>
+                          )}
                         </td>
                       </tr>
                     ))}
@@ -423,6 +478,30 @@ export function OpportunitiesPageContent() {
           </div>
         )}
       </div>
+
+      {/* Delete confirmation */}
+      {deleteId && (
+        <div className="booking-panel-overlay" onClick={() => setDeleteId(null)}>
+          <div className="booking-panel" style={{ maxWidth: 400, margin: "100px auto", padding: 24 }} onClick={(e) => e.stopPropagation()}>
+            <h3>Delete Campaign?</h3>
+            <p className="table-sub">This will permanently delete the campaign. Provider progress will be lost.</p>
+            <div style={{ display: "flex", gap: 12, marginTop: 20, justifyContent: "flex-end" }}>
+              <button className="booking-filter-reset" onClick={() => setDeleteId(null)} type="button">
+                Cancel
+              </button>
+              <button
+                className="booking-create-btn"
+                style={{ background: "#d93025" }}
+                onClick={() => deleteMutation.mutate(deleteId)}
+                disabled={deleteMutation.isPending}
+                type="button"
+              >
+                {deleteMutation.isPending ? "Deleting..." : "Delete"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </section>
   );
 }
