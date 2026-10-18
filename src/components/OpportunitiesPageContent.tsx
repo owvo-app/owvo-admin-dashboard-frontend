@@ -296,7 +296,7 @@ export function OpportunitiesPageContent() {
                               className="opp-action-menu-fixed"
                               style={{ top: menuPos.top, left: menuPos.left }}
                             >
-                              {o.status === "active" ? (
+                              {o.status === "active" && (
                                 <button
                                   type="button"
                                   onClick={() => statusMutation.mutate({ id: o._id, status: "paused" })}
@@ -304,7 +304,8 @@ export function OpportunitiesPageContent() {
                                 >
                                   ⏸ Pause
                                 </button>
-                              ) : o.status === "paused" ? (
+                              )}
+                              {o.status === "paused" && (
                                 <button
                                   type="button"
                                   onClick={() => statusMutation.mutate({ id: o._id, status: "active" })}
@@ -312,7 +313,25 @@ export function OpportunitiesPageContent() {
                                 >
                                   ▶ Resume
                                 </button>
-                              ) : null}
+                              )}
+                              {o.status === "scheduled" && (
+                                <button
+                                  type="button"
+                                  onClick={() => statusMutation.mutate({ id: o._id, status: "active" })}
+                                  disabled={statusMutation.isPending}
+                                >
+                                  🟢 Activate Now
+                                </button>
+                              )}
+                              {o.status === "ended" && (
+                                <button
+                                  type="button"
+                                  onClick={() => statusMutation.mutate({ id: o._id, status: "active" })}
+                                  disabled={statusMutation.isPending}
+                                >
+                                  🔄 Reactivate
+                                </button>
+                              )}
                               <button
                                 type="button"
                                 className="danger"
@@ -502,22 +521,22 @@ export function OpportunitiesPageContent() {
 
       {/* Delete confirmation */}
       {deleteId && (
-        <div className="booking-panel-overlay" onClick={() => setDeleteId(null)}>
-          <div className="booking-panel" style={{ maxWidth: 400, margin: "100px auto", padding: 24 }} onClick={(e) => e.stopPropagation()}>
+        <div className="opp-modal-overlay" onClick={() => setDeleteId(null)}>
+          <div className="opp-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="opp-modal-icon">🗑</div>
             <h3>Delete Campaign?</h3>
-            <p className="table-sub">This will permanently delete the campaign. Provider progress will be lost.</p>
-            <div style={{ display: "flex", gap: 12, marginTop: 20, justifyContent: "flex-end" }}>
-              <button className="booking-filter-reset" onClick={() => setDeleteId(null)} type="button">
+            <p>This will permanently delete the campaign and all provider progress will be lost. This action cannot be undone.</p>
+            <div className="opp-modal-actions">
+              <button className="opp-modal-cancel" onClick={() => setDeleteId(null)} type="button">
                 Cancel
               </button>
               <button
-                className="booking-create-btn"
-                style={{ background: "#d93025" }}
+                className="opp-modal-delete"
                 onClick={() => deleteMutation.mutate(deleteId)}
                 disabled={deleteMutation.isPending}
                 type="button"
               >
-                {deleteMutation.isPending ? "Deleting..." : "Delete"}
+                {deleteMutation.isPending ? "Deleting..." : "Yes, Delete"}
               </button>
             </div>
           </div>
