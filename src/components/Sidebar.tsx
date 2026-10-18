@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useDashboardUser } from "@/hooks/useDashboardUser";
 import {
   canAccessMenu,
@@ -98,6 +98,8 @@ const navSections: NavSection[] = [
 
 export function Sidebar() {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
+  const currentTab = searchParams.get("tab") || "campaigns";
   const user = useDashboardUser();
   const isStaff = user?.role === "staff";
   const visibleSections = navSections
@@ -126,7 +128,7 @@ export function Sidebar() {
         {hasChildren && active && (
           <div className="sidebar-submenu">
             {item.children!.map((child) => {
-              const childActive = pathname + (typeof window !== "undefined" ? window.location.search : "") === child.href;
+              const childActive = currentTab === child.tab;
               return (
                 <Link
                   key={child.href}

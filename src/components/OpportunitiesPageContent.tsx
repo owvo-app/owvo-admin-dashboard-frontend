@@ -131,13 +131,14 @@ export function OpportunitiesPageContent() {
         </div>
       </div>
 
-      <div className="opp-tabs">
+      <div className="booking-filters" style={{ gap: 8 }}>
         {tabs.map((t) => (
           <button
             key={t.key}
             type="button"
             onClick={() => setActiveTab(t.key)}
-            className={activeTab === t.key ? "opp-tab active" : "opp-tab"}
+            className={activeTab === t.key ? "booking-create-btn" : "booking-filter-reset"}
+            style={activeTab === t.key ? {} : { border: "1px solid #e5e7eb" }}
           >
             {t.label}
           </button>
