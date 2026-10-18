@@ -4191,3 +4191,21 @@ a {
 .ticket-msg-head span { font-size: 11px; color: #888; }
 .ticket-msg p { margin: 0; }
 .ticket-reply { border-top: 1px solid #f0f0f0; padding-top: 12px; }
+
+
+/* Opportunities */
+.opp-type, .opp-status {
+  font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 12px;
+  white-space: nowrap; text-transform: capitalize;
+}
+.opp-type-daily { background: #e6f4ea; color: #22a355; }
+.opp-type-weekly { background: #e8f0fe; color: #2369e8; }
+.opp-type-custom { background: #f3e8ff; color: #8b5cf6; }
+.opp-type-location { background: #fef7e0; color: #e37400; }
+.opp-type-service { background: #fce8f3; color: #d63384; }
+.opp-type-milestone { background: #fef7e0; color: #b7791f; }
+.opp-type-referral { background: #fce8e6; color: #d93025; }
+.opp-status-active { background: #e6f4ea; color: #22a355; }
+.opp-status-scheduled { background: #e8f0fe; color: #2369e8; }
+.opp-status-paused { background: #fef7e0; color: #e37400; }
+.opp-status-ended { background: #f0f0f0; color: #666; }
