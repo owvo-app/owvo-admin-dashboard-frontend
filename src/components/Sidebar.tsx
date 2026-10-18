@@ -36,6 +36,7 @@ type NavItem = {
   href: string;
   icon: LucideIcon;
   badge?: number;
+  children?: { label: string; href: string; tab: string }[];
 };
 
 type NavSection = {
@@ -61,7 +62,18 @@ const navSections: NavSection[] = [
       { key: "provider-verification", label: "Provider Verification", href: "/provider-verification", icon: ShieldCheck },
       { key: "customers", label: "Customers", href: "/customers", icon: UsersRound },
       { key: "reports", label: "Services & Pricing", href: "/reports", icon: BadgePoundSterling },
-      { key: "washers", label: "Provider Opportunities", href: "/provider-opportunities", icon: Briefcase },
+      {
+        key: "washers",
+        label: "Provider Opportunities",
+        href: "/provider-opportunities",
+        icon: Briefcase,
+        children: [
+          { label: "Campaigns", href: "/provider-opportunities?tab=campaigns", tab: "campaigns" },
+          { label: "Promotions", href: "/provider-opportunities?tab=promotions", tab: "promotions" },
+          { label: "Provider Progress", href: "/provider-opportunities?tab=progress", tab: "progress" },
+          { label: "Bonus Payouts", href: "/provider-opportunities?tab=payouts", tab: "payouts" },
+        ],
+      },
       { key: "washers", label: "Training", href: "/training", icon: GraduationCap },
     ],
   },
@@ -100,16 +112,34 @@ export function Sidebar() {
   const renderItem = (item: NavItem) => {
     const Icon = item.icon;
     const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+    const hasChildren = item.children && item.children.length > 0;
     return (
-      <Link
-        className={active ? "sidebar-link active" : "sidebar-link"}
-        href={item.href}
-        key={item.href}
-      >
-        <Icon aria-hidden="true" />
-        <span>{item.label}</span>
-        {item.badge ? <span className="sidebar-badge">{item.badge}</span> : null}
-      </Link>
+      <div key={item.href}>
+        <Link
+          className={active ? "sidebar-link active" : "sidebar-link"}
+          href={item.href}
+        >
+          <Icon aria-hidden="true" />
+          <span>{item.label}</span>
+          {item.badge ? <span className="sidebar-badge">{item.badge}</span> : null}
+        </Link>
+        {hasChildren && active && (
+          <div className="sidebar-submenu">
+            {item.children!.map((child) => {
+              const childActive = pathname + (typeof window !== "undefined" ? window.location.search : "") === child.href;
+              return (
+                <Link
+                  key={child.href}
+                  href={child.href}
+                  className={childActive ? "sidebar-sublink active" : "sidebar-sublink"}
+                >
+                  {child.label}
+                </Link>
+              );
+            })}
+          </div>
+        )}
+      </div>
     );
   };
 

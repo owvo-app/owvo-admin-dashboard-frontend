@@ -1061,3 +1061,73 @@ export async function adminReplyToTicket(ticketId: string, text: string) {
   const response = await api.post<ApiEnvelope<SupportTicket>>(`/admin/tickets/${ticketId}/messages`, { text });
   return response.data.data;
 }
+
+
+
+// ─── Opportunities ───
+export type Opportunity = {
+  _id: string;
+  name: string;
+  description?: string;
+  type: "daily" | "weekly" | "custom" | "location" | "service" | "milestone" | "referral";
+  target: number;
+  targetUnit?: string;
+  rewardAmount: number;
+  location?: string;
+  audience?: string;
+  startDate: string;
+  endDate: string;
+  status: "active" | "scheduled" | "paused" | "ended";
+  participants?: number;
+  createdAt?: string;
+};
+
+export type OpportunitiesResponse = {
+  items: Opportunity[];
+  stats: { activeCampaigns: number; totalParticipants: number; rewardsEarned: number };
+  statusBreakdown: { all: number; active: number; scheduled: number; paused: number; ended: number };
+};
+
+export async function getAdminOpportunities(params?: { status?: string; type?: string; search?: string }) {
+  const query = new URLSearchParams();
+  if (params?.status && params.status !== "all") query.set("status", params.status);
+  if (params?.type && params.type !== "all") query.set("type", params.type);
+  if (params?.search) query.set("search", params.search);
+  const qs = query.toString() ? `?${query.toString()}` : "";
+  const response = await api.get<ApiEnvelope<OpportunitiesResponse>>(`/admin/opportunities${qs}`);
+  return response.data.data;
+}
+
+export async function createOpportunity(data: {
+  name: string; description?: string; type: string; target: number;
+  rewardAmount: number; audience?: string; startDate: string; endDate: string;
+}) {
+  const response = await api.post<ApiEnvelope<Opportunity>>("/admin/opportunities", data);
+  return response.data.data;
+}
+
+export async function updateOpportunity(id: string, data: Partial<Opportunity>) {
+  const response = await api.patch<ApiEnvelope<Opportunity>>(`/admin/opportunities/${id}`, data);
+  return response.data.data;
+}
+
+export async function deleteOpportunity(id: string) {
+  const response = await api.delete<ApiEnvelope<any>>(`/admin/opportunities/${id}`);
+  return response.data.data;
+}
+
+export async function getBonusPayouts() {
+  const response = await api.get<ApiEnvelope<any[]>>(`/admin/opportunities/payouts`);
+  return response.data.data;
+}
+
+export async function approvePayout(payoutId: string) {
+  const response = await api.patch<ApiEnvelope<any>>(`/admin/opportunities/payouts/${payoutId}`, {});
+  return response.data.data;
+}
+
+export async function getOpportunityProgress(opportunityId?: string) {
+  const qs = opportunityId ? `?opportunityId=${opportunityId}` : "";
+  const response = await api.get<ApiEnvelope<any[]>>(`/admin/opportunities/progress${qs}`);
+  return response.data.data;
+}
