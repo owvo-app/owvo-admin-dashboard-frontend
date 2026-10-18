@@ -58,6 +58,7 @@ const navSections: NavSection[] = [
     label: "MANAGEMENT",
     items: [
       { key: "washers", label: "Providers", href: "/washers", icon: UserRoundCheck },
+      { key: "provider-verification", label: "Provider Verification", href: "/provider-verification", icon: ShieldCheck },
       { key: "customers", label: "Customers", href: "/customers", icon: UsersRound },
       { key: "reports", label: "Services & Pricing", href: "/reports", icon: BadgePoundSterling },
       { key: "washers", label: "Provider Opportunities", href: "/provider-opportunities", icon: Briefcase },

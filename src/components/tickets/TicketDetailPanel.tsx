@@ -252,7 +252,7 @@ export function TicketDetailPanel({
           )}
         </div>
 
-        <div className="booking-panel-footer">
+        <div className="booking-panel-footer" style={{ paddingBottom: 60 }}>
           <select
             className="booking-filter-select"
             style={{ flex: 1 }}
@@ -265,7 +265,12 @@ export function TicketDetailPanel({
             <option value="resolved">Resolved</option>
             <option value="closed">Closed</option>
           </select>
-          <button className="booking-filter-reset" type="button" style={{ flex: 1 }}>
+          <button
+            className="booking-create-btn"
+            type="button"
+            style={{ flex: 1, padding: "10px 12px" }}
+            onClick={() => alert("Staff assignment coming soon")}
+          >
             Assign to Staff
           </button>
         </div>
