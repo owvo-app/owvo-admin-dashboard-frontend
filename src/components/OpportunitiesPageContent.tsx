@@ -51,6 +51,7 @@ export function OpportunitiesPageContent() {
   const [search, setSearch] = useState("");
   const [showCreate, setShowCreate] = useState(false);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const searchParams = useSearchParams();
 
@@ -277,12 +278,24 @@ export function OpportunitiesPageContent() {
                             className="mini-icon-button"
                             type="button"
                             title="Actions"
-                            onClick={() => setOpenMenuId(openMenuId === o._id ? null : o._id)}
+                            onClick={(e) => {
+                              if (openMenuId === o._id) {
+                                setOpenMenuId(null);
+                                setMenuPos(null);
+                              } else {
+                                const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                                setMenuPos({ top: rect.bottom + 4, left: rect.right - 140 });
+                                setOpenMenuId(o._id);
+                              }
+                            }}
                           >
                             •••
                           </button>
-                          {openMenuId === o._id && (
-                            <div className="opp-action-menu">
+                          {openMenuId === o._id && menuPos && (
+                            <div
+                              className="opp-action-menu-fixed"
+                              style={{ top: menuPos.top, left: menuPos.left }}
+                            >
                               {o.status === "active" ? (
                                 <button
                                   type="button"
@@ -478,6 +491,14 @@ export function OpportunitiesPageContent() {
           </div>
         )}
       </div>
+
+      {/* Click outside to close menu */}
+      {openMenuId && (
+        <div
+          style={{ position: "fixed", inset: 0, zIndex: 15 }}
+          onClick={() => { setOpenMenuId(null); setMenuPos(null); }}
+        />
+      )}
 
       {/* Delete confirmation */}
       {deleteId && (
