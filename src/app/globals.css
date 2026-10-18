@@ -58,6 +58,8 @@ a {
   position: sticky;
   top: 0;
   height: 100vh;
+  overflow-y: auto;
+  overflow-x: hidden;
   background: linear-gradient(180deg, #0b1420 0%, #08111d 100%);
   color: #f4f7fb;
   padding: 25px 14px 18px;
@@ -4277,3 +4279,44 @@ a {
 }
 .sidebar-sublink:hover { color: #fff; background: #222; }
 .sidebar-sublink.active { color: #fbbf24; font-weight: 600; }
+
+
+/* Opportunity provider list */
+.opp-provider-list {
+  max-height: 160px;
+  overflow-y: auto;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+
+/* Opportunity tabs - professional */
+.opp-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 2px solid #e5e7eb;
+  margin-bottom: 20px;
+}
+.opp-tab {
+  padding: 10px 20px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #6b7280;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.opp-tab:hover { color: #111; }
+.opp-tab.active {
+  color: #111;
+  font-weight: 600;
+  border-bottom-color: #eab308;
+}
