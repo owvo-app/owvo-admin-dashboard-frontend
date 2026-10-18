@@ -8,6 +8,7 @@ import {
 import { getBookingStats } from "@/lib/tracking-api";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { PlaceAutocomplete } from "./PlaceAutocomplete";
 
 const typeOptions = [
   "daily", "weekly", "custom",
@@ -207,13 +208,13 @@ export function CreateOpportunityPanel({ onClose }: { onClose: () => void }) {
               ))}
             </div>
           )}
-          <input
-            className="modal-input"
-            placeholder="Or type area manually, e.g. Bromley"
-            value={manualArea}
-            onChange={(e) => setManualArea(e.target.value)}
-            style={{ marginTop: 8 }}
-          />
+          <div style={{ marginTop: 8 }}>
+            <PlaceAutocomplete
+              value={manualArea}
+              onChange={setManualArea}
+              placeholder="Type postcode or area, e.g. SE15 or Bromley"
+            />
+          </div>
           {selectedAreas.length > 0 && (
             <p className="table-sub" style={{ marginTop: 4 }}>
               Selected: {selectedAreas.join(", ")}
@@ -318,7 +319,11 @@ export function CreateOpportunityPanel({ onClose }: { onClose: () => void }) {
       {audience === "selected" && (
         <div className="opp-provider-list">
           {washersQuery.isLoading && <p className="table-sub">Loading providers...</p>}
-          {washersQuery.isError && <p className="table-sub">Could not load providers. Check connection.</p>}
+          {washersQuery.isError && (
+            <p className="error-state" style={{ fontSize: 12 }}>
+              Could not load providers: {(washersQuery.error as any)?.response?.data?.message || (washersQuery.error as any)?.message || "unknown error"}
+            </p>
+          )}
           {washers.map((w: any) => (
             <label key={w._id} className="opp-radio">
               <input
@@ -341,13 +346,12 @@ export function CreateOpportunityPanel({ onClose }: { onClose: () => void }) {
       {audience === "areas" && (
         <>
           <label className="modal-label">Service Areas *</label>
-          <input
-            className="modal-input"
-            placeholder="e.g. Bromley, Croydon, Lewisham"
+          <PlaceAutocomplete
             value={serviceAreas}
-            onChange={(e) => setServiceAreas(e.target.value)}
+            onChange={setServiceAreas}
+            placeholder="Type postcode or area, e.g. SE15 or Bromley"
           />
-          <p className="table-sub" style={{ marginTop: 4 }}>Comma-separated area names</p>
+          <p className="table-sub" style={{ marginTop: 4 }}>Type an area — suggestions appear below</p>
         </>
       )}
 

@@ -4369,3 +4369,33 @@ a {
 }
 .opp-info-box strong { font-size: 13px; color: #1e40af; display: block; margin-bottom: 4px; }
 .opp-info-box p { font-size: 12px; color: #3b82f6; margin: 0; line-height: 1.5; }
+
+
+/* Places autocomplete dropdown */
+.opp-places-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 50;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  margin-top: 4px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+.opp-places-dropdown button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 10px 12px;
+  font-size: 13px;
+  background: none;
+  border: none;
+  border-bottom: 1px solid #f0f0f0;
+  cursor: pointer;
+}
+.opp-places-dropdown button:hover { background: #f8fafc; }
+.opp-places-dropdown button:last-child { border-bottom: none; }
