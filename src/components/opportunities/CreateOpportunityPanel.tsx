@@ -4,6 +4,8 @@ import {
   createOpportunity,
   getAdminServicesPricing,
   getWashers,
+  updateOpportunity,
+  type Opportunity,
 } from "@/lib/admin-api";
 import { getBookingStats } from "@/lib/tracking-api";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -46,16 +48,27 @@ const typeInfo: Record<string, { hint: string; detail: string }> = {
   },
 };
 
-export function CreateOpportunityPanel({ onClose }: { onClose: () => void }) {
+export function CreateOpportunityPanel({
+  onClose,
+  editing,
+}: {
+  onClose: () => void;
+  editing?: Opportunity | null;
+}) {
   const queryClient = useQueryClient();
-  const [name, setName] = useState("");
-  const [type, setType] = useState("daily");
-  const [target, setTarget] = useState("");
-  const [reward, setReward] = useState("");
-  const [description, setDescription] = useState("");
-  const [audience, setAudience] = useState("all");
-  const [startDate, setStartDate] = useState("");
-  const [endDate, setEndDate] = useState("");
+  const isEditing = !!editing;
+  const [name, setName] = useState(editing?.name || "");
+  const [type, setType] = useState<string>(editing?.type || "daily");
+  const [target, setTarget] = useState(editing?.target ? String(editing.target) : "");
+  const [reward, setReward] = useState(editing?.rewardAmount ? String(editing.rewardAmount) : "");
+  const [description, setDescription] = useState(editing?.description || "");
+  const [audience, setAudience] = useState(editing?.audience || "all");
+  const [startDate, setStartDate] = useState(
+    editing?.startDate ? new Date(editing.startDate).toISOString().slice(0, 10) : ""
+  );
+  const [endDate, setEndDate] = useState(
+    editing?.endDate ? new Date(editing.endDate).toISOString().slice(0, 10) : ""
+  );
   const [hasSpecificTime, setHasSpecificTime] = useState(false);
   const [startTime, setStartTime] = useState("");
   const [endTime, setEndTime] = useState("");
@@ -82,6 +95,9 @@ export function CreateOpportunityPanel({ onClose }: { onClose: () => void }) {
     enabled: audience === "selected",
   });
   const washers = Array.isArray(washersQuery.data) ? washersQuery.data : [];
+  const washersDebug = !Array.isArray(washersQuery.data)
+    ? `Unexpected shape: ${typeof washersQuery.data}`
+    : null;
 
   // Active catalog services
   const servicesQuery = useQuery({
@@ -104,26 +120,11 @@ export function CreateOpportunityPanel({ onClose }: { onClose: () => void }) {
     );
   };
 
-  const createMutation = useMutation({
-    mutationFn: () =>
-      createOpportunity({
-        name: name.trim(),
-        description: description.trim(),
-        type,
-        target: Number(target),
-        rewardAmount: Number(reward),
-        audience,
-        startDate,
-        endDate,
-        ...(type === "location"
-          ? { location: [...selectedAreas, manualArea.trim()].filter(Boolean).join(", ") }
-          : {}),
-        ...(type === "service" && serviceId ? { service: serviceId } : {}),
-        ...(audience === "selected" && selectedProviders.length > 0
-          ? { selectedProviders } : {}),
-        ...(audience === "areas" && serviceAreas.trim() ? { serviceAreas: serviceAreas.trim() } : {}),
-        ...(hasSpecificTime ? { hasSpecificTime: true, startTime, endTime } : {}),
-      } as any),
+  const saveMutation = useMutation({
+    mutationFn: (data: any) =>
+      isEditing && editing
+        ? updateOpportunity(editing._id, data)
+        : createOpportunity(data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["admin-opportunities"] });
       onClose();
@@ -149,13 +150,39 @@ export function CreateOpportunityPanel({ onClose }: { onClose: () => void }) {
     if (!endDate) return setError("End date is required");
     if (hasSpecificTime && (!startTime || !endTime))
       return setError("Start and end time are required");
-    createMutation.mutate();
+
+    const payload: any = {
+      name: name.trim(),
+      description: description.trim(),
+      type,
+      target: Number(target),
+      rewardAmount: Number(reward),
+      audience,
+      startDate,
+      endDate,
+      ...(type === "location"
+        ? { location: [...selectedAreas, manualArea.trim()].filter(Boolean).join(", ") }
+        : {}),
+      ...(type === "service" && serviceId ? { service: serviceId } : {}),
+      ...(audience === "selected" && selectedProviders.length > 0
+        ? { selectedProviders } : {}),
+      ...(audience === "areas" && serviceAreas.trim() ? { serviceAreas: serviceAreas.trim() } : {}),
+      ...(hasSpecificTime ? { hasSpecificTime: true, startTime, endTime } : {}),
+    };
+
+    // When editing an active campaign, lock target/type changes
+    if (isEditing && editing?.status === "active") {
+      delete payload.target;
+      delete payload.type;
+    }
+
+    saveMutation.mutate(payload);
   };
 
   return (
     <div className="opp-create-panel">
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-        <h3 style={{ margin: 0 }}>Create New Opportunity</h3>
+        <h3 style={{ margin: 0 }}>{isEditing ? "Edit Opportunity" : "Create New Opportunity"}</h3>
         <button className="booking-filter-reset" onClick={onClose} type="button" style={{ padding: "4px 10px" }}>
           ✕
         </button>
@@ -177,12 +204,18 @@ export function CreateOpportunityPanel({ onClose }: { onClose: () => void }) {
             type="button"
             className={type === t ? "active" : ""}
             onClick={() => setType(t)}
-            style={{ textTransform: "capitalize" }}
+            disabled={isEditing && editing?.status === "active"}
+            style={{ textTransform: "capitalize", opacity: isEditing && editing?.status === "active" ? 0.5 : 1 }}
           >
             {t}
           </button>
         ))}
       </div>
+      {isEditing && editing?.status === "active" && (
+        <p className="table-sub" style={{ marginBottom: 8 }}>
+          ⚠️ Active campaign: type and target are locked to protect provider progress.
+        </p>
+      )}
       <div className="opp-type-info">
         <strong>{typeInfo[type].hint}</strong>
         <p>{typeInfo[type].detail}</p>
@@ -335,7 +368,13 @@ export function CreateOpportunityPanel({ onClose }: { onClose: () => void }) {
             </label>
           ))}
           {!washersQuery.isLoading && washers.length === 0 && !washersQuery.isError && (
-            <p className="table-sub">No providers found.</p>
+            <p className="table-sub">
+              No providers found.
+              {washersDebug && <><br />Debug: {washersDebug}</>}
+              {washersQuery.data && !Array.isArray(washersQuery.data) && (
+                <><br />Raw: {JSON.stringify(washersQuery.data).slice(0, 200)}</>
+              )}
+            </p>
           )}
           {selectedProviders.length > 0 && (
             <p className="table-sub">{selectedProviders.length} selected</p>
@@ -390,10 +429,10 @@ export function CreateOpportunityPanel({ onClose }: { onClose: () => void }) {
         className="booking-create-btn"
         style={{ width: "100%", marginTop: 16, padding: "12px" }}
         onClick={handleSubmit}
-        disabled={createMutation.isPending}
+        disabled={saveMutation.isPending}
         type="button"
       >
-        {createMutation.isPending ? "Creating..." : "Create Campaign"}
+        {saveMutation.isPending ? (isEditing ? "Saving..." : "Creating...") : (isEditing ? "Save Changes" : "Create Campaign")}
       </button>
 
       <div className="opp-preview">

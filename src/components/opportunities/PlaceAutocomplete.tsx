@@ -44,15 +44,9 @@ export function PlaceAutocomplete({ value, onChange, placeholder, className }: P
     let cancelled = false;
     loadPlacesScript(apiKey)
       .then(() => {
-        if (cancelled || !inputRef.current) return;
-        const w = window as any;
-        const autocomplete = new w.google.maps.places.Autocomplete(inputRef.current, {
-          types: ["(regions)"],
-          componentRestrictions: { country: "gb" },
-        });
-        // Hide Google's own dropdown, we render our own
-        const pacContainers = document.querySelectorAll(".pac-container");
-        pacContainers.forEach((el) => ((el as HTMLElement).style.display = "none"));
+        if (cancelled) return;
+        // Script loaded - AutocompleteService is now available
+        // We use our own dropdown (not Google's Autocomplete widget)
       })
       .catch(() => {
         if (!cancelled) setError("Could not load address suggestions");
@@ -109,8 +103,10 @@ export function PlaceAutocomplete({ value, onChange, placeholder, className }: P
             <button
               key={i}
               type="button"
-              onMouseDown={() => {
+              onMouseDown={(e) => {
+                e.preventDefault();
                 onChange(s.description);
+                setSuggestions([]);
                 setShowSuggestions(false);
               }}
             >

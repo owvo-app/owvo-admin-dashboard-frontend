@@ -53,6 +53,7 @@ export function OpportunitiesPageContent() {
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [editingOpp, setEditingOpp] = useState<Opportunity | null>(null);
   const searchParams = useSearchParams();
 
   useEffect(() => {
@@ -296,6 +297,19 @@ export function OpportunitiesPageContent() {
                               className="opp-action-menu-fixed"
                               style={{ top: menuPos.top, left: menuPos.left }}
                             >
+                              {o.status !== "ended" && (
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingOpp(o);
+                                    setShowCreate(true);
+                                    setOpenMenuId(null);
+                                    setMenuPos(null);
+                                  }}
+                                >
+                                  ✏️ Edit
+                                </button>
+                              )}
                               {o.status === "active" && (
                                 <button
                                   type="button"
@@ -506,7 +520,13 @@ export function OpportunitiesPageContent() {
         </div>
         {showCreate && (
           <div style={{ width: 340, flexShrink: 0 }}>
-            <CreateOpportunityPanel onClose={() => setShowCreate(false)} />
+            <CreateOpportunityPanel
+              onClose={() => {
+                setShowCreate(false);
+                setEditingOpp(null);
+              }}
+              editing={editingOpp}
+            />
           </div>
         )}
       </div>
