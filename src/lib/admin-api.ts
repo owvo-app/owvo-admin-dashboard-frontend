@@ -1131,3 +1131,23 @@ export async function getOpportunityProgress(opportunityId?: string) {
   const response = await api.get<ApiEnvelope<any[]>>(`/admin/opportunities/progress${qs}`);
   return response.data.data;
 }
+
+
+// ─── Providers Step 3: account status + soft delete ─────────────────────────
+export async function updateUserAccountStatus(
+  userId: string,
+  accountStatus: "active" | "disabled"
+) {
+  const response = await api.patch<ApiEnvelope<AdminUser>>(
+    `/admin/users/${userId}/status`,
+    { accountStatus }
+  );
+  return response.data.data;
+}
+
+export async function deleteAdminProvider(providerId: string) {
+  const response = await api.delete<ApiEnvelope<{ _id: string }>>(
+    `/admin/providers/${providerId}`
+  );
+  return response.data.data;
+}

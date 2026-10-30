@@ -40,7 +40,10 @@ import {
   updateAdminProviderService,
   updateProviderDailyWashLimit,
   updateDashboardSettings,
+  deleteAdminProvider,
+  updateProviderEnforcement,
   updateStaffAccount,
+  updateUserAccountStatus,
 } from "@/lib/admin-api";
 import { SOCKET_URL } from "@/lib/api";
 import { useDashboardDateRange } from "@/hooks/useDashboardDateRange";
@@ -54,6 +57,7 @@ import { formatDistanceToNow } from "date-fns";
 import {
   Bell,
   BadgePoundSterling,
+  Ban,
   CalendarDays,
   ChevronLeft,
   ChevronRight,
@@ -67,10 +71,14 @@ import {
   FileText,
   Loader2,
   MessageSquareText,
+  MoreVertical,
+  Pencil,
   Plus,
+  Power,
   RefreshCw,
   RotateCcw,
   Search,
+  Settings,
   ReceiptText,
   Save,
   ShieldCheck,
@@ -83,7 +91,7 @@ import {
   Users,
   X,
 } from "lucide-react";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, MouseEvent as ReactMouseEvent, useEffect, useMemo, useState } from "react";
 import { io } from "socket.io-client";
 
 const menuOptions = [
@@ -1413,6 +1421,13 @@ type ProviderListItem = AdminUser & {
 
 type ProviderDisplayStatus = "active" | "pending" | "inactive";
 
+type ProviderActionKind =
+  | "suspend"
+  | "reactivate"
+  | "deactivate"
+  | "activate"
+  | "delete";
+
 function providerDisplayStatus(washer: ProviderListItem): ProviderDisplayStatus {
   const enforcement = washer.enforcement?.status || "clear";
   if (
@@ -1462,6 +1477,119 @@ export function WashersPageContent() {
   const [selected, setSelected] = useState<string[]>([]);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
+  // ─── Step 3: ••• action menu, confirm modals, toast ───
+  const [menuFor, setMenuFor] = useState<string | null>(null);
+  const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null);
+  const [action, setAction] = useState<{
+    kind: ProviderActionKind;
+    provider: ProviderListItem;
+  } | null>(null);
+  const [reason, setReason] = useState("");
+  const [actionError, setActionError] = useState("");
+  const [actionBusy, setActionBusy] = useState(false);
+  const [toast, setToast] = useState<{
+    type: "success" | "error";
+    text: string;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!menuFor) return;
+    const close = () => setMenuFor(null);
+    document.addEventListener("click", close);
+    window.addEventListener("resize", close);
+    window.addEventListener("scroll", close, true);
+    return () => {
+      document.removeEventListener("click", close);
+      window.removeEventListener("resize", close);
+      window.removeEventListener("scroll", close, true);
+    };
+  }, [menuFor]);
+
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(null), 4200);
+    return () => clearTimeout(timer);
+  }, [toast]);
+
+  const openMenu = (
+    event: ReactMouseEvent<HTMLButtonElement>,
+    id: string
+  ) => {
+    event.stopPropagation();
+    if (menuFor === id) {
+      setMenuFor(null);
+      return;
+    }
+    const rect = event.currentTarget.getBoundingClientRect();
+    const menuHeight = 380;
+    const menuWidth = 228;
+    const openUp = rect.bottom + menuHeight + 8 > window.innerHeight;
+    setMenuPos({
+      top: openUp ? Math.max(8, rect.top - menuHeight - 6) : rect.bottom + 6,
+      left: Math.max(8, rect.right - menuWidth),
+    });
+    setMenuFor(id);
+  };
+
+  const menuProvider = menuFor
+    ? washers.find((washer) => washer._id === menuFor)
+    : undefined;
+
+  const openAction = (kind: ProviderActionKind, provider: ProviderListItem) => {
+    setMenuFor(null);
+    setReason("");
+    setActionError("");
+    setAction({ kind, provider });
+  };
+
+  const runAction = async () => {
+    if (!action) return;
+    const { kind, provider } = action;
+    if (kind === "suspend" && !reason.trim()) {
+      setActionError("Reason is required to suspend a provider.");
+      return;
+    }
+    setActionBusy(true);
+    setActionError("");
+    try {
+      if (kind === "suspend") {
+        await updateProviderEnforcement(provider._id, {
+          status: "suspended",
+          reason: reason.trim(),
+        });
+      } else if (kind === "reactivate") {
+        await updateProviderEnforcement(provider._id, { status: "clear" });
+      } else if (kind === "deactivate") {
+        await updateUserAccountStatus(provider._id, "disabled");
+      } else if (kind === "activate") {
+        await updateUserAccountStatus(provider._id, "active");
+      } else if (kind === "delete") {
+        await deleteAdminProvider(provider._id);
+        setSelected((current) =>
+          current.filter((item) => item !== provider._id)
+        );
+      }
+      const messages: Record<ProviderActionKind, string> = {
+        suspend: "Provider suspended.",
+        reactivate: "Provider reactivated.",
+        deactivate: "Provider account deactivated.",
+        activate: "Provider account activated.",
+        delete: "Provider deleted.",
+      };
+      setAction(null);
+      setReason("");
+      await queryClient.invalidateQueries({ queryKey: ["washers"] });
+      setToast({ type: "success", text: messages[kind] });
+    } catch (error) {
+      const message =
+        (error as { response?: { data?: { message?: string } } })?.response
+          ?.data?.message ||
+        "Something went wrong. Check your connection and try again.";
+      setActionError(message);
+    } finally {
+      setActionBusy(false);
+    }
+  };
 
   useEffect(() => {
     const socket = io(SOCKET_URL, getDashboardSocketOptions(user?._id));
@@ -1706,7 +1834,7 @@ export function WashersPageContent() {
         <label className="prov-search">
           <Search size={16} />
           <input
-            placeholder="Search by name, email, phone or ID..."
+            placeholder="Search providers..."
             value={search}
             onChange={(event) => {
               setSearch(event.target.value);
@@ -1812,6 +1940,7 @@ export function WashersPageContent() {
               <th>Rating</th>
               <th>Status</th>
               <th>Joined</th>
+              <th className="prov-actions-head">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -1903,6 +2032,19 @@ export function WashersPageContent() {
                     </span>
                   </td>
                   <td>{joinedLabel(washer.createdAt)}</td>
+                  <td
+                    className="prov-actions-cell"
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    <button
+                      className="prov-menu-button"
+                      type="button"
+                      aria-label="Provider actions"
+                      onClick={(event) => openMenu(event, washer._id)}
+                    >
+                      <MoreVertical size={17} />
+                    </button>
+                  </td>
                 </tr>
               );
             })}
@@ -2002,6 +2144,239 @@ export function WashersPageContent() {
           </div>
         ) : null}
       </div>
+
+      {menuProvider && menuPos ? (
+        <div
+          className="prov-menu"
+          style={{ top: menuPos.top, left: menuPos.left }}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <button
+            className="prov-menu-item"
+            type="button"
+            onClick={() => (window.location.href = `/washers/${menuProvider._id}`)}
+          >
+            <Eye size={15} /> View Details
+          </button>
+          <button
+            className="prov-menu-item"
+            type="button"
+            onClick={() => (window.location.href = `/washers/${menuProvider._id}`)}
+          >
+            <Pencil size={15} /> Edit Provider
+          </button>
+          <button
+            className="prov-menu-item"
+            type="button"
+            onClick={() => (window.location.href = "/provider-verification")}
+          >
+            <ShieldCheck size={15} /> Verify Documents
+          </button>
+          <button
+            className="prov-menu-item"
+            type="button"
+            onClick={() => (window.location.href = `/washers/${menuProvider._id}`)}
+          >
+            <Settings size={15} /> Manage Services
+          </button>
+          <button
+            className="prov-menu-item"
+            type="button"
+            onClick={() => (window.location.href = `/washers/${menuProvider._id}`)}
+          >
+            <BadgePoundSterling size={15} /> View Earnings
+          </button>
+          <button
+            className="prov-menu-item"
+            type="button"
+            onClick={() => {
+              setMenuFor(null);
+              window.alert(
+                "Send Message will be added in Step 7, together with provider Notes."
+              );
+            }}
+          >
+            <MessageSquareText size={15} /> Send Message
+          </button>
+          <div className="prov-menu-divider" />
+          {menuProvider.enforcement?.status === "suspended" ||
+          menuProvider.enforcement?.status === "banned" ? (
+            <button
+              className="prov-menu-item"
+              type="button"
+              onClick={() => openAction("reactivate", menuProvider)}
+            >
+              <UserCheck size={15} /> Reactivate Provider
+            </button>
+          ) : (
+            <button
+              className="prov-menu-item"
+              type="button"
+              onClick={() => openAction("suspend", menuProvider)}
+            >
+              <Ban size={15} /> Suspend Provider
+            </button>
+          )}
+          {menuProvider.accountStatus === "disabled" ? (
+            <button
+              className="prov-menu-item"
+              type="button"
+              onClick={() => openAction("activate", menuProvider)}
+            >
+              <Power size={15} /> Activate Account
+            </button>
+          ) : (
+            <button
+              className="prov-menu-item"
+              type="button"
+              onClick={() => openAction("deactivate", menuProvider)}
+            >
+              <Power size={15} /> Deactivate Account
+            </button>
+          )}
+          <button
+            className="prov-menu-item prov-menu-danger"
+            type="button"
+            onClick={() => openAction("delete", menuProvider)}
+          >
+            <Trash2 size={15} /> Delete Provider
+          </button>
+        </div>
+      ) : null}
+
+      {action ? (
+        <div
+          className="prov-modal-overlay"
+          onClick={() => {
+            if (!actionBusy) setAction(null);
+          }}
+        >
+          <div
+            className="prov-modal"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h3>
+              {action.kind === "suspend"
+                ? "Suspend Provider"
+                : action.kind === "reactivate"
+                  ? "Reactivate Provider"
+                  : action.kind === "deactivate"
+                    ? "Deactivate Account"
+                    : action.kind === "activate"
+                      ? "Activate Account"
+                      : "Delete Provider"}
+            </h3>
+            <p>
+              {action.kind === "suspend" ? (
+                <>
+                  Suspend <strong>{action.provider.name || "this provider"}</strong>?
+                  They will go offline immediately and will not receive new
+                  bookings. Existing bookings are not affected.
+                </>
+              ) : action.kind === "reactivate" ? (
+                <>
+                  Reactivate <strong>{action.provider.name || "this provider"}</strong>?
+                  The suspension will be lifted and they can go online and
+                  receive bookings again.
+                </>
+              ) : action.kind === "deactivate" ? (
+                <>
+                  Deactivate <strong>{action.provider.name || "this provider"}</strong>?
+                  They will not be able to log in or receive bookings. Their
+                  data stays safe and the account can be activated again at any
+                  time.
+                </>
+              ) : action.kind === "activate" ? (
+                <>
+                  Activate <strong>{action.provider.name || "this provider"}</strong>?
+                  They will be able to log in and use the app again.
+                </>
+              ) : (
+                <>
+                  Delete <strong>{action.provider.name || "this provider"}</strong>?
+                  They will be removed from the providers list and will no
+                  longer be able to use the app.
+                </>
+              )}
+            </p>
+
+            {action.kind === "delete" ? (
+              <div className="prov-modal-warn">
+                Booking, payment and earnings records are kept safe — only the
+                provider account is removed from view. If this provider has
+                active bookings, deletion will be stopped. This cannot be
+                undone from the panel.
+              </div>
+            ) : null}
+
+            {action.kind === "suspend" ? (
+              <label className="prov-field">
+                <span>Reason (required)</span>
+                <textarea
+                  className="prov-textarea"
+                  placeholder="e.g. Repeated no-shows reported by customers"
+                  value={reason}
+                  onChange={(event) => setReason(event.target.value)}
+                />
+              </label>
+            ) : null}
+
+            {actionError ? (
+              <div className="prov-modal-error">{actionError}</div>
+            ) : null}
+
+            <div className="prov-modal-actions">
+              <button
+                className="prov-btn prov-btn-ghost"
+                type="button"
+                disabled={actionBusy}
+                onClick={() => setAction(null)}
+              >
+                Cancel
+              </button>
+              <button
+                className={`prov-btn ${
+                  action.kind === "delete" || action.kind === "suspend"
+                    ? "prov-btn-danger"
+                    : action.kind === "deactivate"
+                      ? "prov-btn-dark"
+                      : "prov-btn-primary"
+                }`}
+                type="button"
+                disabled={actionBusy}
+                onClick={runAction}
+              >
+                {actionBusy ? (
+                  <>
+                    <Loader2 className="prov-spin" size={15} /> Working...
+                  </>
+                ) : action.kind === "suspend" ? (
+                  "Suspend"
+                ) : action.kind === "reactivate" ? (
+                  "Reactivate"
+                ) : action.kind === "deactivate" ? (
+                  "Deactivate"
+                ) : action.kind === "activate" ? (
+                  "Activate"
+                ) : (
+                  "Delete"
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {toast ? (
+        <div className={`prov-toast prov-toast-${toast.type}`}>
+          {toast.type === "success" ? (
+            <UserCheck size={16} />
+          ) : (
+            <TriangleAlert size={16} />
+          )}
+          {toast.text}
+        </div>
+      ) : null}
     </section>
   );
 }
