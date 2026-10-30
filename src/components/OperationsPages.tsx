@@ -1853,6 +1853,19 @@ function ProviderDetailPanel({
           year: "numeric",
         }).format(new Date(value))
       : "—";
+  const fmtDateTime = (value?: string | null) => {
+    if (!value) return "—";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "—";
+    return `${date.toLocaleDateString("en-GB", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    })} • ${date.toLocaleTimeString("en-GB", {
+      hour: "numeric",
+      minute: "2-digit",
+    })}`;
+  };
   const joinParts = (parts: Array<string | undefined>) =>
     parts
       .map((part) => (part || "").trim())
@@ -1873,6 +1886,49 @@ function ProviderDetailPanel({
   const activeServices = (detail?.services || []).filter(
     (service) => service.isActive
   );
+  // Step 6 — Earnings/Bookings tabs ka data (detail endpoint ke naye fields;
+  // purane backend par ye arrays undefined hongay, is liye safe defaults).
+  const earn = detail?.earnings;
+  const payouts = (
+    detail as
+      | (AdminProviderDetail & {
+          payouts?: Array<{
+            _id: string;
+            amount: number;
+            status: string;
+            payoutDate?: string | null;
+            paidAt?: string | null;
+            failureReason?: string;
+            createdAt: string;
+          }>;
+        })
+      | undefined
+  )?.payouts || [];
+  const completedJobs = (
+    detail as
+      | (AdminProviderDetail & {
+          completedJobs?: Array<{
+            _id: string;
+            ref: string;
+            serviceTitle: string;
+            customerName: string;
+            finalPrice: number;
+            bookingDate?: string;
+            completedAt?: string;
+            createdAt: string;
+          }>;
+        })
+      | undefined
+  )?.completedJobs || [];
+  const bookingStatusLabel: Record<string, string> = {
+    pending: "Pending",
+    accepted: "Accepted",
+    arrived: "Arrived",
+    ongoing: "Ongoing",
+    completed: "Completed",
+    cancelled: "Cancelled",
+    declined: "Declined",
+  };
 
   const verificationStatus = d?.adminVerification?.status || "not_submitted";
   const docState = (present: boolean): "verified" | "uploaded" | "missing" =>
@@ -1998,7 +2054,7 @@ function ProviderDetailPanel({
         </div>
 
         <div className="prov-panel-body">
-          {tab === "earnings" || tab === "bookings" || tab === "notes" ? (
+          {tab === "notes" ? (
             <div className="prov-state">
               <p>
                 The {tabs.find((item) => item.key === tab)?.label} tab will be added in{" "}
@@ -2469,6 +2525,195 @@ function ProviderDetailPanel({
                   </div>
                 );
               })()}
+            </>
+          ) : tab === "earnings" ? (
+            <>
+              <div className="prov-mini-cards">
+                <article>
+                  <strong>{money(earn?.totalEarnings ?? 0)}</strong>
+                  <span>Total Earnings (net)</span>
+                </article>
+                <article>
+                  <strong>{money(earn?.walletBalance ?? 0)}</strong>
+                  <span>Wallet Balance</span>
+                </article>
+                <article>
+                  <strong>{money(earn?.paidOut ?? 0)}</strong>
+                  <span>Paid Out</span>
+                </article>
+                <article>
+                  <strong>{money(earn?.pendingPayouts ?? 0)}</strong>
+                  <span>Pending Payouts</span>
+                </article>
+              </div>
+
+              <div className="prov-earn-stats">
+                <div>
+                  <span>Today</span>
+                  <strong>{money(earn?.todayNet ?? 0)}</strong>
+                </div>
+                <div>
+                  <span>This week</span>
+                  <strong>{money(earn?.weekNet ?? 0)}</strong>
+                </div>
+                <div>
+                  <span>Tips (paid in full)</span>
+                  <strong>{money(earn?.tipsTotal ?? 0)}</strong>
+                </div>
+                <div>
+                  <span>Gross (before commission)</span>
+                  <strong>{money(earn?.totalGross ?? 0)}</strong>
+                </div>
+              </div>
+              <p className="prov-muted prov-services-note">
+                Platform commission is {Math.round((earn?.commissionRate ?? 0.25) * 100)}%.
+                Net amounts are after commission; tips are paid to the provider
+                in full.
+              </p>
+
+              <h4 className="prov-section-title">Earnings by Booking</h4>
+              {completedJobs.length === 0 ? (
+                <p className="prov-muted">No completed jobs yet.</p>
+              ) : (
+                <div className="prov-earn-table-wrap">
+                  <table className="prov-earn-table">
+                    <thead>
+                      <tr>
+                        <th>Booking</th>
+                        <th>Service</th>
+                        <th>Gross</th>
+                        <th>Commission</th>
+                        <th>Net</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {completedJobs.map((job) => {
+                        const gross = Number(job.finalPrice) || 0;
+                        const commission =
+                          Math.round(gross * (earn?.commissionRate ?? 0.25) * 100) / 100;
+                        const net = Math.round((gross - commission) * 100) / 100;
+                        return (
+                          <tr key={job._id}>
+                            <td>
+                              <strong>{job.ref}</strong>
+                              <small>{fmtDate(job.completedAt || job.bookingDate)}</small>
+                            </td>
+                            <td>
+                              {job.serviceTitle}
+                              <small>{job.customerName}</small>
+                            </td>
+                            <td>{money(gross)}</td>
+                            <td className="prov-earn-neg">−{money(commission)}</td>
+                            <td>
+                              <strong>{money(net)}</strong>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {completedJobs.length > 0 ? (
+                <p className="prov-muted prov-services-note">
+                  Latest {completedJobs.length} completed jobs.
+                </p>
+              ) : null}
+
+              <h4 className="prov-section-title">Payout History</h4>
+              {payouts.length === 0 ? (
+                <p className="prov-muted">No payouts yet.</p>
+              ) : (
+                <ul className="prov-payout-list">
+                  {payouts.map((payout) => (
+                    <li key={payout._id}>
+                      <span className="prov-doc-icon">
+                        <CreditCard size={18} />
+                      </span>
+                      <span className="prov-payout-main">
+                        <strong>{money(payout.amount)}</strong>
+                        <small>
+                          {fmtDate(payout.paidAt || payout.payoutDate || payout.createdAt)}
+                          {payout.status === "failed" && payout.failureReason
+                            ? ` • ${payout.failureReason}`
+                            : ""}
+                        </small>
+                      </span>
+                      <span className={`prov-payout-status prov-payout-${payout.status}`}>
+                        {payout.status}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </>
+          ) : tab === "bookings" ? (
+            <>
+              <div className="prov-bk-counts">
+                <span>
+                  Completed <strong>{detail.stats.counts.completed}</strong>
+                </span>
+                <span>
+                  Active <strong>{detail.stats.counts.active}</strong>
+                </span>
+                <span>
+                  Cancelled <strong>{detail.stats.counts.cancelled}</strong>
+                </span>
+                <span>
+                  Declined <strong>{detail.stats.counts.declined}</strong>
+                </span>
+              </div>
+
+              {detail.recentBookings.length === 0 ? (
+                <p className="prov-muted">No bookings yet.</p>
+              ) : (
+                <ul className="prov-bk-list">
+                  {detail.recentBookings.map((booking) => (
+                    <li key={booking._id}>
+                      <button
+                        className="prov-bk-row"
+                        type="button"
+                        onClick={() =>
+                          (window.location.href = `/bookings/${booking._id}`)
+                        }
+                      >
+                        {booking.customerPhoto ? (
+                          <img
+                            className="prov-bk-avatar"
+                            src={resolveReportPhotoUrl(booking.customerPhoto)}
+                            alt={booking.customerName}
+                          />
+                        ) : (
+                          <span className="prov-bk-initials">
+                            {initials(booking.customerName)}
+                          </span>
+                        )}
+                        <span className="prov-bk-main">
+                          <strong>{booking.customerName}</strong>
+                          <small>
+                            {booking.serviceTitle} •{" "}
+                            {fmtDateTime(booking.bookingDate || booking.createdAt)}
+                          </small>
+                        </span>
+                        <span className="prov-bk-side">
+                          <strong>{money(booking.finalPrice)}</strong>
+                          <span
+                            className={`prov-bk-status prov-bk-${booking.status}`}
+                          >
+                            {bookingStatusLabel[booking.status] || booking.status}
+                          </span>
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {detail.recentBookings.length > 0 ? (
+                <p className="prov-muted prov-services-note">
+                  Latest {detail.recentBookings.length} bookings. Click a booking
+                  to open its full detail page.
+                </p>
+              ) : null}
             </>
           ) : (
             <>

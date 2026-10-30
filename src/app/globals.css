@@ -5820,3 +5820,237 @@ a {
 .prov-hours-list strong {
   color: #344054;
 }
+/* ─── Providers Step 6 — Earnings + Bookings tabs ──────────────────────── */
+.prov-earn-stats {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  margin-top: 12px;
+}
+.prov-earn-stats > div {
+  background: #f9fafb;
+  border: 1px solid #eef1f5;
+  border-radius: 12px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.prov-earn-stats span {
+  font-size: 12px;
+  color: #98a2b3;
+}
+.prov-earn-stats strong {
+  font-size: 15px;
+  color: #101828;
+}
+
+.prov-earn-table-wrap {
+  overflow-x: auto;
+  border: 1px solid #eef1f5;
+  border-radius: 12px;
+}
+.prov-earn-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.prov-earn-table th {
+  text-align: left;
+  padding: 9px 10px;
+  background: #f9fafb;
+  color: #667085;
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+.prov-earn-table td {
+  padding: 9px 10px;
+  border-top: 1px solid #f2f4f7;
+  color: #344054;
+  vertical-align: top;
+}
+.prov-earn-table td strong {
+  color: #101828;
+  display: block;
+}
+.prov-earn-table td small {
+  display: block;
+  color: #98a2b3;
+  font-size: 11.5px;
+  margin-top: 1px;
+}
+.prov-earn-neg {
+  color: #d92d20 !important;
+  white-space: nowrap;
+}
+
+.prov-payout-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.prov-payout-list li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid #eef1f5;
+  border-radius: 12px;
+  padding: 10px 14px;
+}
+.prov-payout-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.prov-payout-main strong {
+  font-size: 14.5px;
+  color: #101828;
+}
+.prov-payout-main small {
+  font-size: 12px;
+  color: #98a2b3;
+}
+.prov-payout-status {
+  font-size: 11.5px;
+  font-weight: 700;
+  padding: 4px 10px;
+  border-radius: 999px;
+  text-transform: capitalize;
+  white-space: nowrap;
+}
+.prov-payout-paid {
+  background: #ecfdf3;
+  color: #067647;
+}
+.prov-payout-pending {
+  background: #fffaeb;
+  color: #b54708;
+}
+.prov-payout-processing {
+  background: #eff8ff;
+  color: #175cd3;
+}
+.prov-payout-failed {
+  background: #fef3f2;
+  color: #b42318;
+}
+
+.prov-bk-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.prov-bk-counts span {
+  background: #f2f4f7;
+  border-radius: 999px;
+  padding: 6px 12px;
+  font-size: 12.5px;
+  color: #475467;
+}
+.prov-bk-counts strong {
+  color: #101828;
+}
+.prov-bk-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.prov-bk-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid #eef1f5;
+  border-radius: 12px;
+  background: #ffffff;
+  padding: 10px 12px;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+}
+.prov-bk-row:hover {
+  background: #f9fafb;
+  border-color: #e4e7ec;
+}
+.prov-bk-avatar,
+.prov-bk-initials {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.prov-bk-avatar {
+  object-fit: cover;
+}
+.prov-bk-initials {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #fff4d6;
+  color: #92580a;
+  font-weight: 700;
+  font-size: 14px;
+}
+.prov-bk-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.prov-bk-main strong {
+  font-size: 14px;
+  color: #101828;
+}
+.prov-bk-main small {
+  font-size: 12px;
+  color: #98a2b3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.prov-bk-side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+.prov-bk-side > strong {
+  font-size: 14px;
+  color: #101828;
+}
+.prov-bk-status {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 9px;
+  border-radius: 999px;
+  text-transform: capitalize;
+}
+.prov-bk-completed {
+  background: #ecfdf3;
+  color: #067647;
+}
+.prov-bk-pending {
+  background: #fffaeb;
+  color: #b54708;
+}
+.prov-bk-accepted,
+.prov-bk-arrived,
+.prov-bk-ongoing {
+  background: #eff8ff;
+  color: #175cd3;
+}
+.prov-bk-cancelled,
+.prov-bk-declined {
+  background: #fef3f2;
+  color: #b42318;
+}
