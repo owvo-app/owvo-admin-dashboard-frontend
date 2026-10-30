@@ -1806,24 +1806,7 @@ function ProviderDetailPanel({
     }
   };
 
-  // ─── Step 5: Services tab — toggles + daily wash limit ───
-  const [serviceBusyId, setServiceBusyId] = useState<string | null>(null);
-  const toggleService = async (serviceId: string, next: boolean) => {
-    setServiceBusyId(serviceId);
-    try {
-      await updateAdminProviderService(provider._id, serviceId, {
-        isActive: next,
-      });
-      await queryClient.invalidateQueries({
-        queryKey: ["provider-detail", provider._id],
-      });
-      notify("success", next ? "Service activated." : "Service deactivated.");
-    } catch (error) {
-      notify("error", serverError(error));
-    } finally {
-      setServiceBusyId(null);
-    }
-  };
+  // ─── Step 5: Services tab — daily wash limit ───
   const [limitMax, setLimitMax] = useState<number>(
     provider.dailyWashLimitMax ?? provider.dailyWashLimit ?? 7
   );
@@ -1885,6 +1868,11 @@ function ProviderDetailPanel({
   const totalJobs = detail
     ? detail.stats.totalJobs
     : provider.completedJobs?.allTime || 0;
+  // Services tab + Overview me sirf provider ki ACTIVE services dikhti hain
+  // (user directive) — admin yahan se provider ki services change nahi karta.
+  const activeServices = (detail?.services || []).filter(
+    (service) => service.isActive
+  );
 
   const verificationStatus = d?.adminVerification?.status || "not_submitted";
   const docState = (present: boolean): "verified" | "uploaded" | "missing" =>
@@ -2155,14 +2143,14 @@ function ProviderDetailPanel({
                   type="button"
                   onClick={() => setTab("services")}
                 >
-                  Edit Services
+                  View Services
                 </button>
               </h4>
-              {detail.services.length === 0 ? (
-                <p className="prov-muted">No services added yet.</p>
+              {activeServices.length === 0 ? (
+                <p className="prov-muted">No active services yet.</p>
               ) : (
                 <ul className="prov-service-list">
-                  {detail.services.map((service) => (
+                  {activeServices.map((service) => (
                     <li key={service._id}>
                       <span>
                         <span
@@ -2486,15 +2474,18 @@ function ProviderDetailPanel({
             <>
               <h4 className="prov-section-title">Provider Services</h4>
               <p className="prov-muted prov-services-note">
-                Prices are set by admin in Services &amp; Pricing and cannot be
-                changed here. Use the toggle to switch a service on or off for
-                this provider.
+                These are the services this provider has activated in their
+                app. Only the provider can switch their services on or off —
+                this list is for viewing only.
               </p>
-              {detail.services.length === 0 ? (
-                <p className="prov-muted">No services added yet.</p>
+              {activeServices.length === 0 ? (
+                <p className="prov-muted">
+                  This provider has not activated any services yet. Services
+                  appear here when the provider switches them on in their app.
+                </p>
               ) : (
                 <ul className="prov-toggle-list">
-                  {detail.services.map((service) => (
+                  {activeServices.map((service) => (
                     <li key={service._id}>
                       <span className="prov-toggle-text">
                         <strong>{service.title}</strong>
@@ -2507,22 +2498,9 @@ function ProviderDetailPanel({
                       <strong className="prov-toggle-price">
                         {money(service.price)}
                       </strong>
-                      <button
-                        className={`prov-switch ${service.isActive ? "on" : ""}`}
-                        type="button"
-                        role="switch"
-                        aria-checked={service.isActive}
-                        disabled={serviceBusyId === service._id}
-                        onClick={() =>
-                          toggleService(service._id, !service.isActive)
-                        }
-                      >
-                        {serviceBusyId === service._id ? (
-                          <Loader2 className="prov-spin" size={13} />
-                        ) : (
-                          <span className="prov-switch-knob" />
-                        )}
-                      </button>
+                      <span className="prov-doc-state prov-doc-verified">
+                        <ShieldCheck size={14} /> Active
+                      </span>
                     </li>
                   ))}
                 </ul>
