@@ -5463,3 +5463,107 @@ a {
     padding: 16px 16px 0;
   }
 }
+/* ─── Providers Step 4 fix — tabs scrollbar hide + map popup ───────────── */
+.prov-tabs {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.prov-tabs::-webkit-scrollbar {
+  display: none;
+}
+.prov-map-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1350;
+  background: rgba(16, 24, 40, 0.55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+}
+.prov-map-card {
+  background: #ffffff;
+  border-radius: 16px;
+  width: 920px;
+  max-width: 96vw;
+  box-shadow: 0 24px 56px rgba(16, 24, 40, 0.3);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.prov-map-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px 18px 10px;
+}
+.prov-map-head h3 {
+  margin: 0 0 3px;
+  font-size: 17px;
+  color: #101828;
+}
+.prov-map-head p {
+  margin: 0;
+  font-size: 13px;
+  color: #667085;
+}
+.prov-map-close {
+  position: static;
+  flex-shrink: 0;
+}
+.prov-map-body {
+  position: relative;
+  height: 62vh;
+  min-height: 340px;
+  background: #eef1f5;
+}
+.prov-map-canvas {
+  position: absolute;
+  inset: 0;
+}
+.prov-map-status {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px;
+  text-align: center;
+  font-size: 14px;
+  color: #475467;
+  background: rgba(255, 255, 255, 0.88);
+}
+.prov-map-error {
+  color: #b42318;
+  font-weight: 600;
+}
+.prov-map-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  align-items: center;
+  padding: 12px 18px 16px;
+  font-size: 12.5px;
+  color: #475467;
+}
+.prov-map-foot span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.prov-map-foot i {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  display: inline-block;
+  border: 2px solid #ffffff;
+  box-shadow: 0 0 0 1px #d0d5dd;
+}
+.prov-map-count {
+  margin-left: auto;
+  color: #98a2b3;
+  font-weight: 600;
+}

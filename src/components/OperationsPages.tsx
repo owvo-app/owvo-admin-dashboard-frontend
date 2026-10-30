@@ -95,7 +95,7 @@ import {
   Users,
   X,
 } from "lucide-react";
-import { FormEvent, MouseEvent as ReactMouseEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, MouseEvent as ReactMouseEvent, useEffect, useMemo, useRef, useState } from "react";
 import { io } from "socket.io-client";
 
 const menuOptions = [
@@ -1417,6 +1417,7 @@ function ActivityLogDownloadButton({ logs, rangeLabel }: { logs: ActivityLog[]; 
 // washer detail page. The ••• action menu arrives in Step 3.
 type ProviderListItem = AdminUser & {
   accountStatus?: string;
+  location?: { type?: string; coordinates?: number[] };
   preferredServices?: Array<
     | string
     | { _id?: string; title?: string; price?: number; isActive?: boolean }
@@ -1463,18 +1464,246 @@ function providerServiceTitles(washer: ProviderListItem): string[] {
 // Right slide-in panel. Header + contact actions hamesha dikhte hain (list ke
 // data se); Overview ki asal details Step 1 wale detail endpoint se ati hain.
 // Baaki tabs (Documents/Services/Earnings/Bookings/Notes) apne steps me ayenge.
+// ─── Providers Step 4 fix — View on Map popup ───────────────────────────────
+// Saare providers ki locations ek Google Map par; jis provider se khola gaya
+// hy wo bara yellow pin + name popup ke sath prominent (center) hota hy.
+function loadGoogleMapsScript(apiKey: string): Promise<void> {
+  if (
+    typeof window !== "undefined" &&
+    (window as unknown as { google?: { maps?: unknown } }).google?.maps
+  ) {
+    return Promise.resolve();
+  }
+  return new Promise((resolve, reject) => {
+    const existing = document.querySelector("script[data-google-maps]");
+    if (existing) {
+      existing.addEventListener("load", () => resolve());
+      existing.addEventListener("error", () =>
+        reject(new Error("Google Maps failed to load"))
+      );
+      return;
+    }
+    const script = document.createElement("script");
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&v=weekly`;
+    script.async = true;
+    script.defer = true;
+    script.setAttribute("data-google-maps", "true");
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error("Google Maps failed to load"));
+    document.head.appendChild(script);
+  });
+}
+
+function ProviderMapModal({
+  providers,
+  selectedId,
+  onClose,
+}: {
+  providers: ProviderListItem[];
+  selectedId: string;
+  onClose: () => void;
+}) {
+  const mapRef = useRef<HTMLDivElement>(null);
+  const [mapError, setMapError] = useState<string | null>(null);
+  const [mapLoading, setMapLoading] = useState(true);
+
+  const pins = providers.filter(
+    (item) =>
+      item.location?.coordinates?.length === 2 &&
+      item.location.coordinates[0] != null &&
+      item.location.coordinates[1] != null
+  );
+  const selected = providers.find((item) => item._id === selectedId);
+  const selectedCoords =
+    selected?.location?.coordinates?.length === 2
+      ? selected.location.coordinates
+      : undefined;
+
+  useEffect(() => {
+    const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+    if (!apiKey) {
+      setMapError("Google Maps API key is not configured.");
+      setMapLoading(false);
+      return;
+    }
+    let cancelled = false;
+    loadGoogleMapsScript(apiKey)
+      .then(() => {
+        if (cancelled || !mapRef.current) return;
+        const g = (
+          window as unknown as {
+            google: {
+              maps: Record<string, any>;
+            };
+          }
+        ).google;
+        const map = new g.maps.Map(mapRef.current, {
+          mapTypeControl: false,
+          streetViewControl: false,
+          fullscreenControl: false,
+        });
+        const info = new g.maps.InfoWindow();
+        const escapeHtml = (value: string) =>
+          value
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;");
+        const bounds = new g.maps.LatLngBounds();
+        let selectedMarker: any = null;
+
+        pins.forEach((item) => {
+          const lng = item.location!.coordinates![0];
+          const lat = item.location!.coordinates![1];
+          const pos = { lat, lng };
+          bounds.extend(pos);
+          const isSelected = item._id === selectedId;
+          const color = isSelected
+            ? "#f6b300"
+            : item.isBusy
+              ? "#2369e8"
+              : item.isOnline
+                ? "#22a355"
+                : "#9aa0a6";
+          const marker = new g.maps.Marker({
+            position: pos,
+            map,
+            title: item.name || "Provider",
+            zIndex: isSelected ? 1000 : 1,
+            icon: {
+              path: g.maps.SymbolPath.CIRCLE,
+              scale: isSelected ? 15 : 9,
+              fillColor: color,
+              fillOpacity: 1,
+              strokeColor: isSelected ? "#0b1f2d" : "#ffffff",
+              strokeWeight: isSelected ? 3 : 2,
+            },
+          });
+          marker.addListener("click", () => {
+            info.setContent(
+              `<div style="font-size:13px;line-height:1.45"><strong>${escapeHtml(item.name || "Provider")}</strong><br/>${escapeHtml(item.serviceArea || "")}<br/>${item.isOnline ? "Online" : "Offline"}${isSelected ? " • Selected provider" : ""}</div>`
+            );
+            info.open(map, marker);
+          });
+          if (isSelected) selectedMarker = marker;
+        });
+
+        if (selectedCoords) {
+          const center = { lat: selectedCoords[1], lng: selectedCoords[0] };
+          map.setCenter(center);
+          map.setZoom(12);
+          if (selected && selectedMarker) {
+            info.setContent(
+              `<div style="font-size:13px;line-height:1.45"><strong>${escapeHtml(selected.name || "Provider")}</strong><br/>${escapeHtml(selected.serviceArea || "")}<br/>${selected.isOnline ? "Online" : "Offline"} • Selected provider</div>`
+            );
+            info.open(map, selectedMarker);
+          }
+        } else if (pins.length > 0) {
+          map.fitBounds(bounds);
+        } else {
+          map.setCenter({ lat: 54.5, lng: -3.5 });
+          map.setZoom(5);
+        }
+        setMapLoading(false);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setMapError(
+            "Google Maps could not be loaded. Check your connection and try again."
+          );
+          setMapLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+    // Map sirf ek dafa banta hy — providers/selected mount par fix hain.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return (
+    <div
+    className="prov-map-overlay"
+    onClick={(event) => {
+      event.stopPropagation();
+      onClose();
+    }}
+  >
+      <div className="prov-map-card" onClick={(event) => event.stopPropagation()}>
+        <div className="prov-map-head">
+          <div>
+            <h3>Provider Locations</h3>
+            <p>
+              {selected
+                ? `"${selected.name || "Provider"}" is highlighted on the map.`
+                : "All providers with a location are shown."}
+            </p>
+          </div>
+          <button
+            className="prov-panel-close prov-map-close"
+            type="button"
+            onClick={onClose}
+            aria-label="Close map"
+          >
+            <X size={18} />
+          </button>
+        </div>
+        <div className="prov-map-body">
+          <div ref={mapRef} className="prov-map-canvas" />
+          {mapLoading ? (
+            <div className="prov-map-status">
+              <Loader2 className="prov-spin" size={18} /> Loading map...
+            </div>
+          ) : null}
+          {mapError ? (
+            <div className="prov-map-status prov-map-error">{mapError}</div>
+          ) : null}
+          {!mapLoading && !mapError && pins.length === 0 ? (
+            <div className="prov-map-status">
+              No provider locations available yet. Locations appear after
+              providers set their service location in the app.
+            </div>
+          ) : null}
+        </div>
+        <div className="prov-map-foot">
+          <span>
+            <i style={{ background: "#f6b300" }} /> Selected
+          </span>
+          <span>
+            <i style={{ background: "#22a355" }} /> Online
+          </span>
+          <span>
+            <i style={{ background: "#2369e8" }} /> Busy
+          </span>
+          <span>
+            <i style={{ background: "#9aa0a6" }} /> Offline
+          </span>
+          <span className="prov-map-count">
+            {pins.length} of {providers.length} providers on the map
+            {selected && !selectedCoords
+              ? ` • ${selected.name || "Selected provider"} has no location set`
+              : ""}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ProviderDetailPanel({
   provider,
   displayId,
+  allProviders,
   onClose,
   onAction,
 }: {
   provider: ProviderListItem;
   displayId: string;
+  allProviders: ProviderListItem[];
   onClose: () => void;
   onAction: (kind: ProviderActionKind, provider: ProviderListItem) => void;
 }) {
   const [tab, setTab] = useState("overview");
+  const [mapOpen, setMapOpen] = useState(false);
   const detailQuery = useQuery({
     queryKey: ["provider-detail", provider._id],
     queryFn: () => getAdminProviderDetail(provider._id),
@@ -1515,14 +1744,6 @@ function ProviderDetailPanel({
   const totalJobs = detail
     ? detail.stats.totalJobs
     : provider.completedJobs?.allTime || 0;
-
-  const coords = d?.location?.coordinates;
-  const mapUrl =
-    coords && coords.length === 2
-      ? `https://www.google.com/maps/search/?api=1&query=${coords[1]},${coords[0]}`
-      : provider.serviceArea
-        ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(provider.serviceArea)}`
-        : null;
 
   const verificationStatus = d?.adminVerification?.status || "not_submitted";
   const docState = (present: boolean): "verified" | "uploaded" | "missing" =>
@@ -1615,15 +1836,13 @@ function ProviderDetailPanel({
           >
             <MessageSquareText size={15} /> Message
           </button>
-          {mapUrl ? (
-            <a className="prov-panel-action" href={mapUrl} target="_blank" rel="noreferrer">
-              <MapPin size={15} /> View on Map
-            </a>
-          ) : (
-            <button className="prov-panel-action" type="button" disabled>
-              <MapPin size={15} /> View on Map
-            </button>
-          )}
+          <button
+            className="prov-panel-action"
+            type="button"
+            onClick={() => setMapOpen(true)}
+          >
+            <MapPin size={15} /> View on Map
+          </button>
         </div>
 
         <div className="prov-panel-contact">
@@ -1900,6 +2119,13 @@ function ProviderDetailPanel({
           )}
         </div>
       </aside>
+      {mapOpen ? (
+        <ProviderMapModal
+          providers={allProviders}
+          selectedId={provider._id}
+          onClose={() => setMapOpen(false)}
+        />
+      ) : null}
     </div>
   );
 }
@@ -2837,6 +3063,7 @@ export function WashersPageContent() {
         <ProviderDetailPanel
           provider={panelProvider}
           displayId={idNumbers.get(panelProvider._id) || ""}
+          allProviders={washers}
           onClose={() => setPanelId(null)}
           onAction={openAction}
         />
