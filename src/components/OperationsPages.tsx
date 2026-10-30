@@ -71,7 +71,7 @@ import {
   FileText,
   Loader2,
   MessageSquareText,
-  MoreVertical,
+  MoreHorizontal,
   Pencil,
   Plus,
   Power,
@@ -2042,7 +2042,7 @@ export function WashersPageContent() {
                       aria-label="Provider actions"
                       onClick={(event) => openMenu(event, washer._id)}
                     >
-                      <MoreVertical size={17} />
+                      <MoreHorizontal size={18} />
                     </button>
                   </td>
                 </tr>
