@@ -1459,7 +1459,6 @@ export function WashersPageContent() {
   const [serviceFilter, setServiceFilter] = useState("all");
   const [onlineFilter, setOnlineFilter] = useState("all");
   const [verifyFilter, setVerifyFilter] = useState("all");
-  const [showMoreFilters, setShowMoreFilters] = useState(false);
   const [selected, setSelected] = useState<string[]>([]);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
@@ -1716,7 +1715,7 @@ export function WashersPageContent() {
           />
         </label>
         <select
-          className="prov-select"
+          className="prov-select prov-w-status"
           value={statusFilter}
           onChange={(event) => {
             setStatusFilter(event.target.value as "all" | ProviderDisplayStatus);
@@ -1729,7 +1728,7 @@ export function WashersPageContent() {
           <option value="inactive">Inactive</option>
         </select>
         <select
-          className="prov-select"
+          className="prov-select prov-w-area"
           value={areaFilter}
           onChange={(event) => {
             setAreaFilter(event.target.value);
@@ -1744,7 +1743,7 @@ export function WashersPageContent() {
           ))}
         </select>
         <select
-          className="prov-select"
+          className="prov-select prov-w-service"
           value={serviceFilter}
           onChange={(event) => {
             setServiceFilter(event.target.value);
@@ -1758,48 +1757,37 @@ export function WashersPageContent() {
             </option>
           ))}
         </select>
-        <button
-          className="prov-filter-button"
-          type="button"
-          onClick={() => setShowMoreFilters((value) => !value)}
-        >
-          <SlidersHorizontal size={15} /> More Filters
-        </button>
+      <select
+        className="prov-select prov-w-availability"
+        value={onlineFilter}
+        onChange={(event) => {
+          setOnlineFilter(event.target.value);
+          setPage(1);
+        }}
+      >
+        <option value="all">All Availability</option>
+        <option value="online">Online now</option>
+        <option value="offline">Offline</option>
+      </select>
+      <select
+        className="prov-select prov-w-verification"
+        value={verifyFilter}
+        onChange={(event) => {
+          setVerifyFilter(event.target.value);
+          setPage(1);
+        }}
+      >
+        <option value="all">All Verification</option>
+        <option value="approved">Verified</option>
+        <option value="pending">Verification pending</option>
+        <option value="not_submitted">Not submitted</option>
+        <option value="rejected">Rejected</option>
+      </select>
         <button className="prov-filter-button" type="button" onClick={resetFilters}>
           <RotateCcw size={15} /> Reset
         </button>
       </div>
 
-      {showMoreFilters ? (
-        <div className="prov-filters prov-filters-extra">
-          <select
-            className="prov-select"
-            value={onlineFilter}
-            onChange={(event) => {
-              setOnlineFilter(event.target.value);
-              setPage(1);
-            }}
-          >
-            <option value="all">All Availability</option>
-            <option value="online">Online now</option>
-            <option value="offline">Offline</option>
-          </select>
-          <select
-            className="prov-select"
-            value={verifyFilter}
-            onChange={(event) => {
-              setVerifyFilter(event.target.value);
-              setPage(1);
-            }}
-          >
-            <option value="all">All Verification</option>
-            <option value="approved">Verified</option>
-            <option value="pending">Verification pending</option>
-            <option value="not_submitted">Not submitted</option>
-            <option value="rejected">Rejected</option>
-          </select>
-        </div>
-      ) : null}
 
       <div className="prov-table-card">
         {selected.length > 0 ? (

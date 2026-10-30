@@ -4878,3 +4878,27 @@ a {
     overflow-x: auto;
   }
 }
+/* ─── Providers Step 2 fix — stat icon centering + Add button width ─── */
+.prov-stat-card .prov-stat-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.prov-header .prov-add-button {
+  width: auto;
+  flex: 0 0 auto;
+  align-self: center;
+  padding: 0 20px;
+}
+/* ─── Providers Step 2 fix 2 — filters in one line, no More Filters ─── */
+.prov-filters .prov-search {
+  flex: 0 1 240px;
+}
+.prov-filters .prov-select {
+  flex: 0 0 auto;
+}
+.prov-w-status { width: 150px; }
+.prov-w-area { width: 180px; }
+.prov-w-service { width: 150px; }
+.prov-w-availability { width: 150px; }
+.prov-w-verification { width: 170px; }
