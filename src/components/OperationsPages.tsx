@@ -7,6 +7,7 @@ import {
   AdminNotification,
   AdminPayment,
   AdminPayout,
+  AdminProviderDetail,
   AdminReport,
   AdminService,
   AdminServicesPricing,
@@ -43,6 +44,7 @@ import {
   updateDashboardSettings,
   deleteAdminProvider,
   updateProviderEnforcement,
+  updateProviderVerification,
   updateStaffAccount,
   updateUserAccountStatus,
 } from "@/lib/admin-api";
@@ -1433,6 +1435,37 @@ type ProviderActionKind =
   | "activate"
   | "delete";
 
+// Step 5 ke tabs ko detail provider ke kuch aur fields chahiye (documents,
+// insurance expiry, availability) — base type par local extension.
+type PanelProviderDetail = AdminProviderDetail["provider"] & {
+  identityVerification?: {
+    documentNumber?: string;
+    submittedAt?: string;
+  };
+  insurance?: { uploadedAt?: string };
+  publicLiabilityInsurance?: {
+    policyNumber?: string;
+    insuranceCompany?: string;
+    expiryDate?: string;
+    status?: string;
+    uploadedAt?: string;
+  };
+  drivewayPhoto?: { document?: { url?: string }; uploadedAt?: string };
+  bankDetails?: {
+    accountHolderName?: string;
+    bankName?: string;
+    sortCode?: string;
+  };
+  availability?: {
+    mode?: string;
+    days?: Record<
+      string,
+      { enabled?: boolean; startTime?: string; endTime?: string }
+    >;
+  };
+  adminVerification?: { reviewedAt?: string };
+};
+
 function providerDisplayStatus(washer: ProviderListItem): ProviderDisplayStatus {
   const enforcement = washer.enforcement?.status || "clear";
   if (
@@ -1709,7 +1742,115 @@ function ProviderDetailPanel({
     queryFn: () => getAdminProviderDetail(provider._id),
   });
   const detail = detailQuery.data;
-  const d = detail?.provider;
+  const d = detail?.provider as PanelProviderDetail | undefined;
+  const queryClient = useQueryClient();
+
+  // ─── Step 5: panel snackbar (Call/Message notices, tab actions) ───
+  const [panelToast, setPanelToast] = useState<{
+    type: "success" | "error" | "info";
+    text: string;
+  } | null>(null);
+  useEffect(() => {
+    if (!panelToast) return;
+    const timer = setTimeout(() => setPanelToast(null), 3600);
+    return () => clearTimeout(timer);
+  }, [panelToast]);
+  const notify = (type: "success" | "error" | "info", text: string) =>
+    setPanelToast({ type, text });
+  const serverError = (error: unknown) =>
+    (error as { response?: { data?: { message?: string } } })?.response?.data
+      ?.message || "Something went wrong. Check your connection and try again.";
+  const refreshDetail = async () => {
+    await queryClient.invalidateQueries({
+      queryKey: ["provider-detail", provider._id],
+    });
+    await queryClient.invalidateQueries({ queryKey: ["washers"] });
+  };
+
+  // ─── Step 5: Documents tab — verification approve / reject ───
+  const [verifyBusy, setVerifyBusy] = useState(false);
+  const [rejectOpen, setRejectOpen] = useState(false);
+  const [rejectReason, setRejectReason] = useState("");
+  const handleApprove = async () => {
+    setVerifyBusy(true);
+    try {
+      await updateProviderVerification(provider._id, { status: "approved" });
+      notify("success", "Provider verification approved.");
+      setRejectOpen(false);
+      await refreshDetail();
+    } catch (error) {
+      notify("error", serverError(error));
+    } finally {
+      setVerifyBusy(false);
+    }
+  };
+  const handleReject = async () => {
+    if (!rejectReason.trim()) {
+      notify("error", "Rejection reason is required.");
+      return;
+    }
+    setVerifyBusy(true);
+    try {
+      await updateProviderVerification(provider._id, {
+        status: "rejected",
+        rejectionReason: rejectReason.trim(),
+      });
+      notify("success", "Provider verification rejected.");
+      setRejectOpen(false);
+      setRejectReason("");
+      await refreshDetail();
+    } catch (error) {
+      notify("error", serverError(error));
+    } finally {
+      setVerifyBusy(false);
+    }
+  };
+
+  // ─── Step 5: Services tab — toggles + daily wash limit ───
+  const [serviceBusyId, setServiceBusyId] = useState<string | null>(null);
+  const toggleService = async (serviceId: string, next: boolean) => {
+    setServiceBusyId(serviceId);
+    try {
+      await updateAdminProviderService(provider._id, serviceId, {
+        isActive: next,
+      });
+      await queryClient.invalidateQueries({
+        queryKey: ["provider-detail", provider._id],
+      });
+      notify("success", next ? "Service activated." : "Service deactivated.");
+    } catch (error) {
+      notify("error", serverError(error));
+    } finally {
+      setServiceBusyId(null);
+    }
+  };
+  const [limitMax, setLimitMax] = useState<number>(
+    provider.dailyWashLimitMax ?? provider.dailyWashLimit ?? 7
+  );
+  const [limitBusy, setLimitBusy] = useState(false);
+  useEffect(() => {
+    setLimitMax(provider.dailyWashLimitMax ?? provider.dailyWashLimit ?? 7);
+    setRejectOpen(false);
+    setRejectReason("");
+  }, [provider._id]);
+  const saveLimit = async () => {
+    if (!Number.isFinite(limitMax) || limitMax < 1 || limitMax > 50) {
+      notify("error", "Daily wash limit must be between 1 and 50.");
+      return;
+    }
+    setLimitBusy(true);
+    try {
+      await updateProviderDailyWashLimit(provider._id, {
+        dailyWashLimitMax: Math.round(limitMax),
+      });
+      notify("success", "Daily wash limit updated.");
+      await queryClient.invalidateQueries({ queryKey: ["washers"] });
+    } catch (error) {
+      notify("error", serverError(error));
+    } finally {
+      setLimitBusy(false);
+    }
+  };
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -1818,20 +1959,18 @@ function ProviderDetailPanel({
         </div>
 
         <div className="prov-panel-actions">
-          {provider.phoneNumber ? (
-            <a className="prov-panel-action" href={`tel:${provider.phoneNumber}`}>
-              <Phone size={15} /> Call
-            </a>
-          ) : (
-            <button className="prov-panel-action" type="button" disabled>
-              <Phone size={15} /> Call
-            </button>
-          )}
+          <button
+            className="prov-panel-action"
+            type="button"
+            onClick={() => notify("info", "Calling is coming in the next phase.")}
+          >
+            <Phone size={15} /> Call
+          </button>
           <button
             className="prov-panel-action"
             type="button"
             onClick={() =>
-              window.alert("Send Message will be added in Step 7, together with provider Notes.")
+              notify("info", "Messaging is coming in Step 7, together with provider Notes.")
             }
           >
             <MessageSquareText size={15} /> Message
@@ -1871,7 +2010,7 @@ function ProviderDetailPanel({
         </div>
 
         <div className="prov-panel-body">
-          {tab !== "overview" ? (
+          {tab === "earnings" || tab === "bookings" || tab === "notes" ? (
             <div className="prov-state">
               <p>
                 The {tabs.find((item) => item.key === tab)?.label} tab will be added in{" "}
@@ -1893,7 +2032,7 @@ function ProviderDetailPanel({
                 <RefreshCw size={14} /> Retry
               </button>
             </div>
-          ) : (
+          ) : tab === "overview" ? (
             <>
               <div className="prov-mini-cards">
                 <article>
@@ -2071,8 +2210,401 @@ function ProviderDetailPanel({
                 </ul>
               )}
             </>
+          ) : tab === "documents" ? (
+            <>
+              <div className="prov-verify-bar">
+                <div>
+                  <strong>Verification status: </strong>
+                  <span className={`prov-verify-chip prov-verify-${verificationStatus}`}>
+                    {verificationStatus === "approved"
+                      ? "Verified"
+                      : verificationStatus === "pending"
+                        ? "Under review"
+                        : verificationStatus === "rejected"
+                          ? "Rejected"
+                          : "Not submitted"}
+                  </span>
+                  {d?.adminVerification?.reviewedAt ? (
+                    <small> • Reviewed {fmtDate(d.adminVerification.reviewedAt)}</small>
+                  ) : null}
+                </div>
+                <div className="prov-verify-actions">
+                  {verificationStatus !== "approved" ? (
+                    <button
+                      className="prov-btn prov-btn-primary"
+                      type="button"
+                      disabled={verifyBusy}
+                      onClick={handleApprove}
+                    >
+                      {verifyBusy ? <Loader2 className="prov-spin" size={14} /> : <ShieldCheck size={14} />} Approve
+                    </button>
+                  ) : null}
+                  {verificationStatus !== "rejected" ? (
+                    <button
+                      className="prov-btn prov-btn-ghost prov-btn-outline-danger"
+                      type="button"
+                      disabled={verifyBusy}
+                      onClick={() => setRejectOpen((value) => !value)}
+                    >
+                      <Ban size={14} /> Reject
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+
+              {d?.adminVerification?.rejectionReason ? (
+                <p className="prov-reject-reason">
+                  Rejection reason: {d.adminVerification.rejectionReason}
+                </p>
+              ) : null}
+
+              {rejectOpen ? (
+                <div className="prov-reject-box">
+                  <label className="prov-field">
+                    <span>Rejection reason (required)</span>
+                    <textarea
+                      className="prov-textarea"
+                      placeholder="e.g. Insurance document is expired, please re-upload"
+                      value={rejectReason}
+                      onChange={(event) => setRejectReason(event.target.value)}
+                    />
+                  </label>
+                  <div className="prov-reject-actions">
+                    <button
+                      className="prov-btn prov-btn-ghost"
+                      type="button"
+                      disabled={verifyBusy}
+                      onClick={() => setRejectOpen(false)}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      className="prov-btn prov-btn-danger"
+                      type="button"
+                      disabled={verifyBusy}
+                      onClick={handleReject}
+                    >
+                      {verifyBusy ? <Loader2 className="prov-spin" size={14} /> : null} Reject Provider
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
+              {(() => {
+                const overallApproved = verificationStatus === "approved";
+                const stateFrom = (
+                  present: boolean,
+                  own?: string
+                ): { label: string; cls: string } => {
+                  if (!present) return { label: "Missing", cls: "missing" };
+                  if (own === "approved" || own === "verified")
+                    return { label: "Verified", cls: "verified" };
+                  if (own === "rejected") return { label: "Rejected", cls: "missing" };
+                  if (overallApproved) return { label: "Verified", cls: "verified" };
+                  return { label: "Pending", cls: "uploaded" };
+                };
+                const identityUrl =
+                  d?.identityVerification?.passportOrDrivingLicenseFile?.url ||
+                  d?.identityVerification?.idFile?.url ||
+                  "";
+                const docType = d?.identityVerification?.documentType || "";
+                const expiry = d?.publicLiabilityInsurance?.expiryDate
+                  ? new Date(d.publicLiabilityInsurance.expiryDate)
+                  : null;
+                const daysToExpiry = expiry
+                  ? Math.ceil((expiry.getTime() - Date.now()) / 86400000)
+                  : null;
+                const cards: Array<{
+                  title: string;
+                  sub: string;
+                  url?: string;
+                  state: { label: string; cls: string };
+                  warn?: string;
+                }> = [
+                  {
+                    title: "Identity Document",
+                    sub: [
+                      docType === "passport"
+                        ? "Passport"
+                        : docType === "driving_license"
+                          ? "Driving License"
+                          : null,
+                      d?.identityVerification?.documentNumber
+                        ? `No: ${d.identityVerification.documentNumber}`
+                        : null,
+                      d?.identityVerification?.submittedAt
+                        ? `Submitted ${fmtDate(d.identityVerification.submittedAt)}`
+                        : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" • ") || "Not submitted yet",
+                    url: identityUrl,
+                    state: stateFrom(Boolean(identityUrl), d?.identityVerification?.status),
+                  },
+                  {
+                    title: "Driving License",
+                    sub:
+                      docType === "driving_license"
+                        ? "Same document as identity (driving license used)"
+                        : docType === "passport"
+                          ? "Passport was used as the identity document"
+                          : "Not uploaded",
+                    url: docType === "driving_license" ? identityUrl : "",
+                    state:
+                      docType === "driving_license"
+                        ? stateFrom(Boolean(identityUrl), d?.identityVerification?.status)
+                        : { label: "Missing", cls: "missing" },
+                  },
+                  {
+                    title: "Insurance Document",
+                    sub: d?.insurance?.uploadedAt
+                      ? `Uploaded ${fmtDate(d.insurance.uploadedAt)}`
+                      : "Not uploaded",
+                    url: d?.insurance?.document?.url || "",
+                    state: stateFrom(Boolean(d?.insurance?.document?.url)),
+                  },
+                  {
+                    title: "Public Liability Insurance",
+                    sub: [
+                      d?.publicLiabilityInsurance?.insuranceCompany || null,
+                      d?.publicLiabilityInsurance?.policyNumber
+                        ? `Policy: ${d.publicLiabilityInsurance.policyNumber}`
+                        : null,
+                      expiry ? `Expires ${fmtDate(d?.publicLiabilityInsurance?.expiryDate)}` : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" • ") || "Not uploaded",
+                    url: d?.publicLiabilityInsurance?.document?.url || "",
+                    state: stateFrom(
+                      Boolean(d?.publicLiabilityInsurance?.document?.url),
+                      d?.publicLiabilityInsurance?.status
+                    ),
+                    warn:
+                      daysToExpiry !== null && daysToExpiry < 0
+                        ? "Expired"
+                        : daysToExpiry !== null && daysToExpiry <= 30
+                          ? `Expiring in ${daysToExpiry} days`
+                          : undefined,
+                  },
+                  {
+                    title: "Driveway Photo",
+                    sub: d?.drivewayPhoto?.uploadedAt
+                      ? `Uploaded ${fmtDate(d.drivewayPhoto.uploadedAt)}`
+                      : "Not uploaded",
+                    url: d?.drivewayPhoto?.document?.url || "",
+                    state: stateFrom(Boolean(d?.drivewayPhoto?.document?.url)),
+                  },
+                  {
+                    title: "Vehicle Document",
+                    sub: "Vehicle documents are not collected during provider onboarding",
+                    url: "",
+                    state: { label: "Not collected", cls: "uploaded" },
+                  },
+                ];
+                return (
+                  <div className="prov-doc-cards">
+                    {cards.map((card) => (
+                      <article key={card.title} className="prov-doc-card">
+                        {card.url && /\.(png|jpe?g|webp)(\?|$)/i.test(card.url) ? (
+                          <img
+                            className="prov-doc-thumb"
+                            src={resolveReportPhotoUrl(card.url)}
+                            alt={card.title}
+                          />
+                        ) : (
+                          <span className="prov-doc-icon">
+                            <FileText size={20} />
+                          </span>
+                        )}
+                        <div className="prov-doc-main">
+                          <strong>{card.title}</strong>
+                          <small>{card.sub}</small>
+                          {card.warn ? (
+                            <small className="prov-doc-warn">
+                              <TriangleAlert size={12} /> {card.warn}
+                            </small>
+                          ) : null}
+                        </div>
+                        <span className={`prov-doc-state prov-doc-${card.state.cls}`}>
+                          {card.state.label}
+                        </span>
+                        {card.url ? (
+                          <a
+                            className="prov-doc-view"
+                            href={resolveReportPhotoUrl(card.url)}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            <Eye size={14} /> View
+                          </a>
+                        ) : null}
+                      </article>
+                    ))}
+
+                    <article className="prov-doc-card">
+                      <span className="prov-doc-icon">
+                        <CreditCard size={20} />
+                      </span>
+                      <div className="prov-doc-main">
+                        <strong>Bank Details</strong>
+                        <small>
+                          {[
+                            d?.bankDetails?.accountHolderName || null,
+                            d?.bankDetails?.bankName || null,
+                            d?.bankDetails?.accountNumber
+                              ? `Acc: ${d.bankDetails.accountNumber}`
+                              : null,
+                            d?.bankDetails?.sortCode
+                              ? `Sort: ${d.bankDetails.sortCode}`
+                              : null,
+                          ]
+                            .filter(Boolean)
+                            .join(" • ") || "Not provided"}
+                        </small>
+                      </div>
+                      <span
+                        className={`prov-doc-state prov-doc-${
+                          d?.isBankCompleted || d?.bankDetails?.accountNumber
+                            ? overallApproved
+                              ? "verified"
+                              : "uploaded"
+                            : "missing"
+                        }`}
+                      >
+                        {d?.isBankCompleted || d?.bankDetails?.accountNumber
+                          ? overallApproved
+                            ? "Verified"
+                            : "Provided"
+                          : "Missing"}
+                      </span>
+                    </article>
+                  </div>
+                );
+              })()}
+            </>
+          ) : (
+            <>
+              <h4 className="prov-section-title">Provider Services</h4>
+              <p className="prov-muted prov-services-note">
+                Prices are set by admin in Services &amp; Pricing and cannot be
+                changed here. Use the toggle to switch a service on or off for
+                this provider.
+              </p>
+              {detail.services.length === 0 ? (
+                <p className="prov-muted">No services added yet.</p>
+              ) : (
+                <ul className="prov-toggle-list">
+                  {detail.services.map((service) => (
+                    <li key={service._id}>
+                      <span className="prov-toggle-text">
+                        <strong>{service.title}</strong>
+                        <small>
+                          {[service.serviceType, service.carSize]
+                            .filter(Boolean)
+                            .join(" • ") || "Standard"}
+                        </small>
+                      </span>
+                      <strong className="prov-toggle-price">
+                        {money(service.price)}
+                      </strong>
+                      <button
+                        className={`prov-switch ${service.isActive ? "on" : ""}`}
+                        type="button"
+                        role="switch"
+                        aria-checked={service.isActive}
+                        disabled={serviceBusyId === service._id}
+                        onClick={() =>
+                          toggleService(service._id, !service.isActive)
+                        }
+                      >
+                        {serviceBusyId === service._id ? (
+                          <Loader2 className="prov-spin" size={13} />
+                        ) : (
+                          <span className="prov-switch-knob" />
+                        )}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              <h4 className="prov-section-title">Daily Wash Limit</h4>
+              <div className="prov-limit-row">
+                <div>
+                  <strong>{provider.dailyWashLimit ?? "—"} washes / day</strong>
+                  <small>Current limit set by the provider</small>
+                </div>
+                <label className="prov-limit-input">
+                  <span>Maximum allowed</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={50}
+                    value={limitMax}
+                    onChange={(event) => setLimitMax(Number(event.target.value))}
+                  />
+                </label>
+                <button
+                  className="prov-btn prov-btn-primary"
+                  type="button"
+                  disabled={limitBusy}
+                  onClick={saveLimit}
+                >
+                  {limitBusy ? <Loader2 className="prov-spin" size={14} /> : <Save size={14} />} Save
+                </button>
+              </div>
+
+              <h4 className="prov-section-title">Working Hours</h4>
+              {!d?.availability || d.availability.mode === "always" ? (
+                <p className="prov-muted">
+                  Always available — the provider has not set a weekly schedule.
+                </p>
+              ) : (
+                <ul className="prov-hours-list">
+                  {(
+                    [
+                      ["monday", "Monday"],
+                      ["tuesday", "Tuesday"],
+                      ["wednesday", "Wednesday"],
+                      ["thursday", "Thursday"],
+                      ["friday", "Friday"],
+                      ["saturday", "Saturday"],
+                      ["sunday", "Sunday"],
+                    ] as Array<[string, string]>
+                  ).map(([key, label]) => {
+                    const day = d.availability?.days?.[key];
+                    return (
+                      <li key={key}>
+                        <span>{label}</span>
+                        <strong>
+                          {day?.enabled
+                            ? `${day.startTime || "08:00"} – ${day.endTime || "17:30"}`
+                            : "Closed"}
+                        </strong>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+              <p className="prov-muted prov-services-note">
+                Working hours are set by the provider in the app.
+              </p>
+            </>
           )}
         </div>
+
+      {panelToast ? (
+        <div className={`prov-toast prov-toast-${panelToast.type}`}>
+          {panelToast.type === "success" ? (
+            <UserCheck size={16} />
+          ) : panelToast.type === "error" ? (
+            <TriangleAlert size={16} />
+          ) : (
+            <Clock size={16} />
+          )}
+          {panelToast.text}
+        </div>
+      ) : null}
 
         <div className="prov-panel-footer">
           <button
