@@ -50,12 +50,14 @@ import { getDashboardSocketOptions } from "@/lib/socket";
 import { initials, money } from "@/lib/format";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
-import WashersMap from "@/components/washers/WashersMap";
 
 import {
   Bell,
   BadgePoundSterling,
   CalendarDays,
+  ChevronLeft,
+  ChevronRight,
+  Clock,
   CarFront,
   ChevronDown,
   CreditCard,
@@ -66,6 +68,9 @@ import {
   Loader2,
   MessageSquareText,
   Plus,
+  RefreshCw,
+  RotateCcw,
+  Search,
   ReceiptText,
   Save,
   ShieldCheck,
@@ -73,10 +78,12 @@ import {
   Star,
   Trash2,
   TriangleAlert,
+  UserCheck,
   UserRound,
+  Users,
   X,
 } from "lucide-react";
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { io } from "socket.io-client";
 
 const menuOptions = [
@@ -1391,16 +1398,71 @@ function ActivityLogDownloadButton({ logs, rangeLabel }: { logs: ActivityLog[]; 
   );
 }
 
+// ─── Providers redesign (Step 2 — list page) ────────────────────────────────
+// Reference design: header + Add Provider, 4 stat cards, filters, table with
+// display IDs / service chips / status badges, pagination + full error states.
+// The detail panel arrives in Step 4; row click still opens the existing
+// washer detail page. The ••• action menu arrives in Step 3.
+type ProviderListItem = AdminUser & {
+  accountStatus?: string;
+  preferredServices?: Array<
+    | string
+    | { _id?: string; title?: string; price?: number; isActive?: boolean }
+  >;
+};
+
+type ProviderDisplayStatus = "active" | "pending" | "inactive";
+
+function providerDisplayStatus(washer: ProviderListItem): ProviderDisplayStatus {
+  const enforcement = washer.enforcement?.status || "clear";
+  if (
+    enforcement === "suspended" ||
+    enforcement === "banned" ||
+    washer.accountStatus === "disabled"
+  ) {
+    return "inactive";
+  }
+  if ((washer.adminVerification?.status || "not_submitted") !== "approved") {
+    return "pending";
+  }
+  return "active";
+}
+
+function providerServiceTitles(washer: ProviderListItem): string[] {
+  return (washer.preferredServices || [])
+    .map((service) =>
+      typeof service === "string"
+        ? null
+        : service?.isActive === false
+          ? null
+          : service?.title || null
+    )
+    .filter((title): title is string => Boolean(title));
+}
+
 export function WashersPageContent() {
   const queryClient = useQueryClient();
-  const dateRange = useDashboardDateRange();
   const user = useDashboardUser();
+  // Directory page: the Topbar date range does NOT narrow this list — the
+  // backend treats it as a management list ("all" by default). This also
+  // removes the old "empty page because the range defaulted to a week" trap.
   const washersQuery = useQuery({
-    queryKey: ["washers", dateRange.queryKey],
-    queryFn: () => getWashers(dateRange.query),
+    queryKey: ["washers", "all"],
+    queryFn: () => getWashers({ range: "all" }),
     refetchInterval: 30000,
   });
-  const washers = washersQuery.data || [];
+  const washers = (washersQuery.data || []) as ProviderListItem[];
+
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | ProviderDisplayStatus>("all");
+  const [areaFilter, setAreaFilter] = useState("all");
+  const [serviceFilter, setServiceFilter] = useState("all");
+  const [onlineFilter, setOnlineFilter] = useState("all");
+  const [verifyFilter, setVerifyFilter] = useState("all");
+  const [showMoreFilters, setShowMoreFilters] = useState(false);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
 
   useEffect(() => {
     const socket = io(SOCKET_URL, getDashboardSocketOptions(user?._id));
@@ -1414,76 +1476,544 @@ export function WashersPageContent() {
     };
   }, [queryClient, user?._id]);
 
+  // Display ID (#P001) — a stable number from join order (oldest first), so a
+  // provider keeps the same ID no matter how the list is filtered or sorted.
+  const idNumbers = useMemo(() => {
+    const sorted = [...washers].sort(
+      (a, b) =>
+        new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime()
+    );
+    const map = new Map<string, string>();
+    sorted.forEach((washer, index) => {
+      map.set(washer._id, `P${String(index + 1).padStart(3, "0")}`);
+    });
+    return map;
+  }, [washers]);
+
+  const areas = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          washers
+            .map((washer) => washer.serviceArea?.trim())
+            .filter(Boolean) as string[]
+        )
+      ).sort(),
+    [washers]
+  );
+
+  const serviceOptions = useMemo(
+    () =>
+      Array.from(
+        new Set(washers.flatMap((washer) => providerServiceTitles(washer)))
+      ).sort(),
+    [washers]
+  );
+
+  const counts = useMemo(() => {
+    const result = {
+      total: washers.length,
+      active: 0,
+      pending: 0,
+      inactive: 0,
+      joinedThisMonth: 0,
+    };
+    const now = new Date();
+    washers.forEach((washer) => {
+      result[providerDisplayStatus(washer)] += 1;
+      const joined = washer.createdAt ? new Date(washer.createdAt) : null;
+      if (
+        joined &&
+        joined.getMonth() === now.getMonth() &&
+        joined.getFullYear() === now.getFullYear()
+      ) {
+        result.joinedThisMonth += 1;
+      }
+    });
+    return result;
+  }, [washers]);
+
+  const filtered = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    return washers.filter((washer) => {
+      if (statusFilter !== "all" && providerDisplayStatus(washer) !== statusFilter)
+        return false;
+      if (areaFilter !== "all" && (washer.serviceArea || "") !== areaFilter)
+        return false;
+      if (
+        serviceFilter !== "all" &&
+        !providerServiceTitles(washer).includes(serviceFilter)
+      )
+        return false;
+      if (onlineFilter === "online" && !washer.isOnline) return false;
+      if (onlineFilter === "offline" && washer.isOnline) return false;
+      if (
+        verifyFilter !== "all" &&
+        (washer.adminVerification?.status || "not_submitted") !== verifyFilter
+      )
+        return false;
+      if (term) {
+        const displayId = idNumbers.get(washer._id) || "";
+        const haystack = [
+          washer.name || "",
+          washer.email || "",
+          washer.phoneNumber || "",
+          `#${displayId}`,
+          displayId,
+        ]
+          .join(" ")
+          .toLowerCase();
+        if (!haystack.includes(term)) return false;
+      }
+      return true;
+    });
+  }, [
+    washers,
+    search,
+    statusFilter,
+    areaFilter,
+    serviceFilter,
+    onlineFilter,
+    verifyFilter,
+    idNumbers,
+  ]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const pageItems = filtered.slice((safePage - 1) * pageSize, safePage * pageSize);
+  const pageIds = pageItems.map((washer) => washer._id);
+  const allPageSelected =
+    pageIds.length > 0 && pageIds.every((id) => selected.includes(id));
+
+  const pageButtons = useMemo(() => {
+    const buttons: Array<number | "gap"> = [];
+    for (let i = 1; i <= totalPages; i += 1) {
+      if (i === 1 || i === totalPages || Math.abs(i - safePage) <= 1) {
+        buttons.push(i);
+      } else if (buttons[buttons.length - 1] !== "gap") {
+        buttons.push("gap");
+      }
+    }
+    return buttons;
+  }, [totalPages, safePage]);
+
+  const resetFilters = () => {
+    setSearch("");
+    setStatusFilter("all");
+    setAreaFilter("all");
+    setServiceFilter("all");
+    setOnlineFilter("all");
+    setVerifyFilter("all");
+    setPage(1);
+  };
+
+  const toggleSelected = (id: string) =>
+    setSelected((current) =>
+      current.includes(id)
+        ? current.filter((item) => item !== id)
+        : [...current, id]
+    );
+
+  const togglePageSelected = () =>
+    setSelected((current) =>
+      allPageSelected
+        ? current.filter((id) => !pageIds.includes(id))
+        : Array.from(new Set([...current, ...pageIds]))
+    );
+
+  const pctOfTotal = (value: number) =>
+    counts.total > 0 ? `${Math.round((value / counts.total) * 100)}% of total` : "—";
+
+  const joinedLabel = (value?: string) =>
+    value
+      ? new Intl.DateTimeFormat("en-GB", {
+          day: "numeric",
+          month: "short",
+          year: "numeric",
+        }).format(new Date(value))
+      : "—";
+
   return (
     <section className="data-page">
-      <div className="data-page-header">
+      <div className="data-page-header prov-header">
         <div>
-          <h1>Washers</h1>
-          <p>Provider records, live status, verification, ratings, and enforcement state.</p>
+          <h1>Providers</h1>
+          <p>
+            Manage service providers, verify documents, track performance and
+            control access.
+          </p>
         </div>
+        <button
+          className="primary-button prov-add-button"
+          type="button"
+          onClick={() =>
+            window.alert(
+              "Add Provider form will be added in Step 7, together with its backend."
+            )
+          }
+        >
+          <Plus size={16} /> Add Provider
+        </button>
       </div>
-      <WashersMap washers={washers} />
-      <TableShell>
-        <table className="admin-table">
+
+      <div className="prov-stats">
+        <article className="prov-stat-card">
+          <span className="prov-stat-icon prov-icon-blue">
+            <Users size={20} />
+          </span>
+          <div>
+            <strong>{counts.total}</strong>
+            <span>Total Providers</span>
+            <small>
+              {counts.joinedThisMonth > 0
+                ? `+${counts.joinedThisMonth} joined this month`
+                : "Registered providers"}
+            </small>
+          </div>
+        </article>
+        <article className="prov-stat-card">
+          <span className="prov-stat-icon prov-icon-green">
+            <UserCheck size={20} />
+          </span>
+          <div>
+            <strong>{counts.active}</strong>
+            <span>Active</span>
+            <small>{pctOfTotal(counts.active)}</small>
+          </div>
+        </article>
+        <article className="prov-stat-card">
+          <span className="prov-stat-icon prov-icon-amber">
+            <Clock size={20} />
+          </span>
+          <div>
+            <strong>{counts.pending}</strong>
+            <span>Pending Approval</span>
+            <small>{pctOfTotal(counts.pending)}</small>
+          </div>
+        </article>
+        <article className="prov-stat-card">
+          <span className="prov-stat-icon prov-icon-red">
+            <UserRound size={20} />
+          </span>
+          <div>
+            <strong>{counts.inactive}</strong>
+            <span>Inactive</span>
+            <small>{pctOfTotal(counts.inactive)}</small>
+          </div>
+        </article>
+      </div>
+
+      <div className="prov-filters">
+        <label className="prov-search">
+          <Search size={16} />
+          <input
+            placeholder="Search by name, email, phone or ID..."
+            value={search}
+            onChange={(event) => {
+              setSearch(event.target.value);
+              setPage(1);
+            }}
+          />
+        </label>
+        <select
+          className="prov-select"
+          value={statusFilter}
+          onChange={(event) => {
+            setStatusFilter(event.target.value as "all" | ProviderDisplayStatus);
+            setPage(1);
+          }}
+        >
+          <option value="all">All Statuses</option>
+          <option value="active">Active</option>
+          <option value="pending">Pending Approval</option>
+          <option value="inactive">Inactive</option>
+        </select>
+        <select
+          className="prov-select"
+          value={areaFilter}
+          onChange={(event) => {
+            setAreaFilter(event.target.value);
+            setPage(1);
+          }}
+        >
+          <option value="all">All Service Areas</option>
+          {areas.map((area) => (
+            <option key={area} value={area}>
+              {area}
+            </option>
+          ))}
+        </select>
+        <select
+          className="prov-select"
+          value={serviceFilter}
+          onChange={(event) => {
+            setServiceFilter(event.target.value);
+            setPage(1);
+          }}
+        >
+          <option value="all">All Services</option>
+          {serviceOptions.map((title) => (
+            <option key={title} value={title}>
+              {title}
+            </option>
+          ))}
+        </select>
+        <button
+          className="prov-filter-button"
+          type="button"
+          onClick={() => setShowMoreFilters((value) => !value)}
+        >
+          <SlidersHorizontal size={15} /> More Filters
+        </button>
+        <button className="prov-filter-button" type="button" onClick={resetFilters}>
+          <RotateCcw size={15} /> Reset
+        </button>
+      </div>
+
+      {showMoreFilters ? (
+        <div className="prov-filters prov-filters-extra">
+          <select
+            className="prov-select"
+            value={onlineFilter}
+            onChange={(event) => {
+              setOnlineFilter(event.target.value);
+              setPage(1);
+            }}
+          >
+            <option value="all">All Availability</option>
+            <option value="online">Online now</option>
+            <option value="offline">Offline</option>
+          </select>
+          <select
+            className="prov-select"
+            value={verifyFilter}
+            onChange={(event) => {
+              setVerifyFilter(event.target.value);
+              setPage(1);
+            }}
+          >
+            <option value="all">All Verification</option>
+            <option value="approved">Verified</option>
+            <option value="pending">Verification pending</option>
+            <option value="not_submitted">Not submitted</option>
+            <option value="rejected">Rejected</option>
+          </select>
+        </div>
+      ) : null}
+
+      <div className="prov-table-card">
+        {selected.length > 0 ? (
+          <div className="prov-selected-bar">
+            {selected.length} provider{selected.length === 1 ? "" : "s"} selected
+          </div>
+        ) : null}
+        <table className="prov-table">
           <thead>
             <tr>
-              <th>Washer</th>
-              <th>Status</th>
-              <th>Today's Washes</th>
-              <th>Verification</th>
-              <th>Rating</th>
-              <th>Completed Jobs</th>
+              <th className="prov-check-cell">
+                <input
+                  type="checkbox"
+                  checked={allPageSelected}
+                  onChange={togglePageSelected}
+                />
+              </th>
+              <th>ID</th>
+              <th>Provider</th>
               <th>Service Area</th>
+              <th>Services</th>
+              <th>Rating</th>
+              <th>Status</th>
+              <th>Joined</th>
             </tr>
           </thead>
           <tbody>
-           {washers.map((washer) => (
-            <tr key={washer._id}
-            className="clickable-row"
-            onClick={() => (window.location.href = `/washers/${washer._id}`)}
-            >
-                <td>
-                  <AvatarName user={washer} fallback="Washer" />
-                </td>
-                <td>
-                  <span className={`table-status ${washer.isOnline ? "approved" : "pending"}`}>
-                    {washer.isOnline ? "online" : "offline"}
-                  </span>
-                </td>
-                <td>
-                  {washer.isOnline ? (
-                    <span className="wash-capacity">
-                      {washer.dailyWashLimit ?? 0}/{washer.dailyWashLimitMax ?? 7}
-                      {washer.isBusy && <span className="wash-capacity-busy"> · on a job</span>}
+            {pageItems.map((washer) => {
+              const status = providerDisplayStatus(washer);
+              const titles = providerServiceTitles(washer);
+              const photoUrl = resolveReportPhotoUrl(washer.photo?.url);
+              return (
+                <tr
+                  key={washer._id}
+                  className={`clickable-row${
+                    selected.includes(washer._id) ? " prov-row-selected" : ""
+                  }`}
+                  onClick={() =>
+                    (window.location.href = `/washers/${washer._id}`)
+                  }
+                >
+                  <td
+                    className="prov-check-cell"
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selected.includes(washer._id)}
+                      onChange={() => toggleSelected(washer._id)}
+                    />
+                  </td>
+                  <td className="prov-id">#{idNumbers.get(washer._id)}</td>
+                  <td>
+                    <div className="inline-person">
+                      {photoUrl ? (
+                        <span className="small-avatar person-photo-shell">
+                          <span>{initials(washer.name || washer.email, "P")}</span>
+                          <img
+                            alt={washer.name || "Provider"}
+                            src={photoUrl}
+                            onError={(event) => {
+                              event.currentTarget.remove();
+                            }}
+                          />
+                        </span>
+                      ) : (
+                        <span className="small-avatar">
+                          {initials(washer.name || washer.email, "P")}
+                        </span>
+                      )}
+                      <span>
+                        <strong>{washer.name || "Provider"}</strong>
+                        <small>{washer.phoneNumber || "No phone"}</small>
+                      </span>
+                    </div>
+                  </td>
+                  <td>{washer.serviceArea || "Not set"}</td>
+                  <td>
+                    <div className="prov-chips">
+                      {titles.slice(0, 3).map((title, index) => (
+                        <span key={title} className={`prov-chip prov-chip-${index % 4}`}>
+                          {title}
+                        </span>
+                      ))}
+                      {titles.length > 3 ? (
+                        <span className="prov-chip prov-chip-more">
+                          +{titles.length - 3} more
+                        </span>
+                      ) : null}
+                      {titles.length === 0 ? (
+                        <span className="prov-muted">No services</span>
+                      ) : null}
+                    </div>
+                  </td>
+                  <td>
+                    <span className="prov-rating">
+                      <Star size={14} />
+                      {washer.customerRatingAverage
+                        ? Number(washer.customerRatingAverage).toFixed(1)
+                        : "—"}
+                      {washer.customerRatingCount
+                        ? ` (${washer.customerRatingCount})`
+                        : ""}
                     </span>
-                  ) : (
-                    <span className="wash-capacity-offline">—</span>
-                  )}
-                </td>
-                <td>
-                  <span className={`table-status ${washer.adminVerification?.status || "not_submitted"}`}>
-                    {statusText[washer.adminVerification?.status || "not_submitted"]}
-                  </span>
-                </td>
-                <td>
-                  <RatingSummary
-                    average={washer.customerRatingAverage}
-                    count={washer.customerRatingCount}
-                  />
-                </td>
-                <td>
-                  <CompletedJobsSummary jobs={washer.completedJobs} />
-                </td>
-                <td>{washer.serviceArea || "Not set"}</td>
-              </tr>
-            ))}
+                  </td>
+                  <td>
+                    <span className={`prov-badge prov-badge-${status}`}>
+                      {status === "active"
+                        ? "Active"
+                        : status === "pending"
+                          ? "Pending"
+                          : "Inactive"}
+                    </span>
+                  </td>
+                  <td>{joinedLabel(washer.createdAt)}</td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
-        {washersQuery.isLoading ? <EmptyState text="Loading washers..." /> : null}
-        {!washersQuery.isLoading && washers.length === 0 ? (
-          <EmptyState text="No provider accounts found." />
+
+        {washersQuery.isLoading ? (
+          <div className="prov-state">
+            <Loader2 className="prov-spin" size={18} /> Loading providers...
+          </div>
         ) : null}
-      </TableShell>
+
+        {washersQuery.isError ? (
+          <div className="prov-error">
+            <TriangleAlert size={20} />
+            <div>
+              <strong>Connection error</strong>
+              <p>Providers could not be loaded. Check your internet connection and try again.</p>
+            </div>
+            <button
+              className="prov-retry"
+              type="button"
+              onClick={() => washersQuery.refetch()}
+            >
+              <RefreshCw size={14} /> Retry
+            </button>
+          </div>
+        ) : null}
+
+        {!washersQuery.isLoading && !washersQuery.isError && washers.length === 0 ? (
+          <EmptyState text="No providers yet. New providers will appear here after they sign up." />
+        ) : null}
+
+        {!washersQuery.isLoading &&
+        !washersQuery.isError &&
+        washers.length > 0 &&
+        filtered.length === 0 ? (
+          <div className="prov-state">
+            <p>No providers match your filters.</p>
+            <button className="prov-retry" type="button" onClick={resetFilters}>
+              <RotateCcw size={14} /> Reset filters
+            </button>
+          </div>
+        ) : null}
+
+        {filtered.length > 0 ? (
+          <div className="prov-pagination">
+            <span>
+              Showing {(safePage - 1) * pageSize + 1} to{" "}
+              {Math.min(safePage * pageSize, filtered.length)} of {filtered.length}{" "}
+              providers
+            </span>
+            <div className="prov-pages">
+              <button
+                disabled={safePage <= 1}
+                onClick={() => setPage(safePage - 1)}
+                type="button"
+              >
+                <ChevronLeft size={14} />
+              </button>
+              {pageButtons.map((button, index) =>
+                button === "gap" ? (
+                  <span key={`gap-${index}`} className="prov-page-gap">
+                    …
+                  </span>
+                ) : (
+                  <button
+                    key={button}
+                    className={button === safePage ? "active" : ""}
+                    onClick={() => setPage(button)}
+                    type="button"
+                  >
+                    {button}
+                  </button>
+                )
+              )}
+              <button
+                disabled={safePage >= totalPages}
+                onClick={() => setPage(safePage + 1)}
+                type="button"
+              >
+                <ChevronRight size={14} />
+              </button>
+            </div>
+            <select
+              className="prov-select prov-page-size"
+              value={pageSize}
+              onChange={(event) => {
+                setPageSize(Number(event.target.value));
+                setPage(1);
+              }}
+            >
+              <option value={10}>10 / page</option>
+              <option value={25}>25 / page</option>
+              <option value={50}>50 / page</option>
+            </select>
+          </div>
+        ) : null}
+      </div>
     </section>
   );
 }
