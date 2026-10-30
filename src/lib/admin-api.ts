@@ -1151,3 +1151,92 @@ export async function deleteAdminProvider(providerId: string) {
   );
   return response.data.data;
 }
+
+
+export interface AdminProviderDetail {
+  provider: AdminUser & {
+    residentialAddress?: string;
+    providerAddress?: {
+      streetAddress?: string;
+      city?: string;
+      country?: string;
+      postcode?: string;
+    };
+    serviceLocationAddress?: {
+      streetAddress?: string;
+      city?: string;
+      postcode?: string;
+      sameAsHomeAddress?: boolean;
+    };
+    location?: { type?: string; coordinates?: number[] };
+    identityVerification?: {
+      documentType?: string;
+      status?: string;
+      idFile?: { url?: string };
+      passportOrDrivingLicenseFile?: { url?: string };
+    };
+    insurance?: { document?: { url?: string } };
+    publicLiabilityInsurance?: { document?: { url?: string } };
+    isBankCompleted?: boolean;
+    bankDetails?: { accountNumber?: string };
+  };
+  services: Array<{
+    _id: string;
+    title: string;
+    price: number;
+    isActive: boolean;
+    serviceType?: string;
+    carSize?: string;
+  }>;
+  stats: {
+    totalJobs: number;
+    ratingAverage: number;
+    ratingCount: number;
+    completionRate: number | null;
+    counts: {
+      completed: number;
+      cancelled: number;
+      cancelledByProvider: number;
+      declined: number;
+      active: number;
+    };
+  };
+  earnings: {
+    totalGross: number;
+    totalEarnings: number;
+    todayNet: number;
+    weekNet: number;
+    tipsTotal: number;
+    paidOut: number;
+    pendingPayouts: number;
+    walletBalance: number;
+    commissionRate: number;
+  };
+  recentBookings: Array<{
+    _id: string;
+    status: string;
+    bookingDate?: string;
+    finalPrice?: number;
+    price?: number;
+    paymentStatus?: string | null;
+    serviceTitle: string;
+    customerName: string;
+    customerPhoto?: string;
+    createdAt?: string;
+  }>;
+  recentActivity: Array<{
+    type: string;
+    title: string;
+    ref?: string;
+    amount?: number | null;
+    stars?: number | null;
+    createdAt?: string;
+  }>;
+}
+
+export async function getAdminProviderDetail(providerId: string) {
+  const response = await api.get<ApiEnvelope<AdminProviderDetail>>(
+    `/admin/providers/${providerId}`
+  );
+  return response.data.data;
+}

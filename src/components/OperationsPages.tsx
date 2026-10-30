@@ -31,6 +31,7 @@ import {
   getCustomers,
   getDashboardSettings,
   getStaffAccounts,
+  getAdminProviderDetail,
   getWashers,
   updateAdminAddon,
   updateAdminMe,
@@ -70,9 +71,12 @@ import {
   EyeOff,
   FileText,
   Loader2,
+  Mail,
+  MapPin,
   MessageSquareText,
   MoreHorizontal,
   Pencil,
+  Phone,
   Plus,
   Power,
   RefreshCw,
@@ -1455,6 +1459,451 @@ function providerServiceTitles(washer: ProviderListItem): string[] {
     .filter((title): title is string => Boolean(title));
 }
 
+// ─── Providers redesign (Step 4 — detail panel + Overview tab) ──────────────
+// Right slide-in panel. Header + contact actions hamesha dikhte hain (list ke
+// data se); Overview ki asal details Step 1 wale detail endpoint se ati hain.
+// Baaki tabs (Documents/Services/Earnings/Bookings/Notes) apne steps me ayenge.
+function ProviderDetailPanel({
+  provider,
+  displayId,
+  onClose,
+  onAction,
+}: {
+  provider: ProviderListItem;
+  displayId: string;
+  onClose: () => void;
+  onAction: (kind: ProviderActionKind, provider: ProviderListItem) => void;
+}) {
+  const [tab, setTab] = useState("overview");
+  const detailQuery = useQuery({
+    queryKey: ["provider-detail", provider._id],
+    queryFn: () => getAdminProviderDetail(provider._id),
+  });
+  const detail = detailQuery.data;
+  const d = detail?.provider;
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const status = providerDisplayStatus(provider);
+  const photoUrl = resolveReportPhotoUrl(provider.photo?.url);
+  const fmtDate = (value?: string) =>
+    value
+      ? new Intl.DateTimeFormat("en-GB", {
+          day: "numeric",
+          month: "short",
+          year: "numeric",
+        }).format(new Date(value))
+      : "—";
+  const joinParts = (parts: Array<string | undefined>) =>
+    parts
+      .map((part) => (part || "").trim())
+      .filter(Boolean)
+      .join(", ") || "Not provided";
+
+  const ratingAverage = detail
+    ? detail.stats.ratingAverage
+    : provider.customerRatingAverage || 0;
+  const ratingCount = detail
+    ? detail.stats.ratingCount
+    : provider.customerRatingCount || 0;
+  const totalJobs = detail
+    ? detail.stats.totalJobs
+    : provider.completedJobs?.allTime || 0;
+
+  const coords = d?.location?.coordinates;
+  const mapUrl =
+    coords && coords.length === 2
+      ? `https://www.google.com/maps/search/?api=1&query=${coords[1]},${coords[0]}`
+      : provider.serviceArea
+        ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(provider.serviceArea)}`
+        : null;
+
+  const verificationStatus = d?.adminVerification?.status || "not_submitted";
+  const docState = (present: boolean): "verified" | "uploaded" | "missing" =>
+    !present ? "missing" : verificationStatus === "approved" ? "verified" : "uploaded";
+  const identityPresent = Boolean(
+    d?.identityVerification?.idFile?.url ||
+      d?.identityVerification?.passportOrDrivingLicenseFile?.url
+  );
+  const docRows: Array<{ label: string; state: "verified" | "uploaded" | "missing" }> = [
+    { label: "Identity Document", state: docState(identityPresent) },
+    { label: "Insurance Document", state: docState(Boolean(d?.insurance?.document?.url)) },
+    {
+      label: "Public Liability Insurance",
+      state: docState(Boolean(d?.publicLiabilityInsurance?.document?.url)),
+    },
+    {
+      label: "Bank Details",
+      state: docState(Boolean(d?.isBankCompleted || d?.bankDetails?.accountNumber)),
+    },
+  ];
+
+  const tabs = [
+    { key: "overview", label: "Overview" },
+    { key: "documents", label: "Documents", step: "Step 5" },
+    { key: "services", label: "Services", step: "Step 5" },
+    { key: "earnings", label: "Earnings", step: "Step 6" },
+    { key: "bookings", label: "Bookings", step: "Step 6" },
+    { key: "notes", label: "Notes", step: "Step 7" },
+  ];
+
+  return (
+    <div className="prov-panel-overlay" onClick={onClose}>
+      <aside className="prov-panel" onClick={(event) => event.stopPropagation()}>
+        <button className="prov-panel-close" type="button" onClick={onClose} aria-label="Close panel">
+          <X size={18} />
+        </button>
+
+        <div className="prov-panel-head">
+          {photoUrl ? (
+            <span className="prov-panel-avatar person-photo-shell">
+              <span>{initials(provider.name || provider.email, "P")}</span>
+              <img
+                alt={provider.name || "Provider"}
+                src={photoUrl}
+                onError={(event) => {
+                  event.currentTarget.remove();
+                }}
+              />
+            </span>
+          ) : (
+            <span className="prov-panel-avatar">
+              {initials(provider.name || provider.email, "P")}
+            </span>
+          )}
+          <div className="prov-panel-title">
+            <h2>{provider.name || "Provider"}</h2>
+            <div className="prov-panel-meta">
+              <span className={`prov-badge prov-badge-${status}`}>
+                {status === "active" ? "Active" : status === "pending" ? "Pending" : "Inactive"}
+              </span>
+              <span className={provider.isOnline ? "prov-online" : "prov-offline"}>
+                {provider.isOnline ? "Online now" : "Offline"}
+              </span>
+            </div>
+            <p>
+              #{displayId} • Joined {fmtDate(provider.createdAt)}
+            </p>
+            <p className="prov-panel-rating">
+              <Star size={14} /> {ratingAverage ? Number(ratingAverage).toFixed(1) : "—"} ({ratingCount} reviews) • {totalJobs} jobs completed
+            </p>
+          </div>
+        </div>
+
+        <div className="prov-panel-actions">
+          {provider.phoneNumber ? (
+            <a className="prov-panel-action" href={`tel:${provider.phoneNumber}`}>
+              <Phone size={15} /> Call
+            </a>
+          ) : (
+            <button className="prov-panel-action" type="button" disabled>
+              <Phone size={15} /> Call
+            </button>
+          )}
+          <button
+            className="prov-panel-action"
+            type="button"
+            onClick={() =>
+              window.alert("Send Message will be added in Step 7, together with provider Notes.")
+            }
+          >
+            <MessageSquareText size={15} /> Message
+          </button>
+          {mapUrl ? (
+            <a className="prov-panel-action" href={mapUrl} target="_blank" rel="noreferrer">
+              <MapPin size={15} /> View on Map
+            </a>
+          ) : (
+            <button className="prov-panel-action" type="button" disabled>
+              <MapPin size={15} /> View on Map
+            </button>
+          )}
+        </div>
+
+        <div className="prov-panel-contact">
+          <span>
+            <Phone size={14} /> {provider.phoneNumber || "No phone"}
+          </span>
+          <span>
+            <Mail size={14} /> {provider.email || "No email"}
+          </span>
+          <span>
+            <MapPin size={14} /> {provider.serviceArea || "Area not set"}
+          </span>
+        </div>
+
+        <div className="prov-tabs">
+          {tabs.map((item) => (
+            <button
+              key={item.key}
+              className={tab === item.key ? "active" : ""}
+              type="button"
+              onClick={() => setTab(item.key)}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="prov-panel-body">
+          {tab !== "overview" ? (
+            <div className="prov-state">
+              <p>
+                The {tabs.find((item) => item.key === tab)?.label} tab will be added in{" "}
+                {tabs.find((item) => item.key === tab)?.step}.
+              </p>
+            </div>
+          ) : detailQuery.isLoading ? (
+            <div className="prov-state">
+              <Loader2 className="prov-spin" size={18} /> Loading provider details...
+            </div>
+          ) : detailQuery.isError || !detail ? (
+            <div className="prov-error">
+              <TriangleAlert size={20} />
+              <div>
+                <strong>Connection error</strong>
+                <p>Provider details could not be loaded. Check your connection and try again.</p>
+              </div>
+              <button className="prov-retry" type="button" onClick={() => detailQuery.refetch()}>
+                <RefreshCw size={14} /> Retry
+              </button>
+            </div>
+          ) : (
+            <>
+              <div className="prov-mini-cards">
+                <article>
+                  <strong>{detail.stats.totalJobs}</strong>
+                  <span>Total Jobs</span>
+                </article>
+                <article>
+                  <strong>
+                    {detail.stats.completionRate === null ? "—" : `${detail.stats.completionRate}%`}
+                  </strong>
+                  <span>Completion Rate</span>
+                </article>
+                <article>
+                  <strong>{detail.stats.ratingAverage ? detail.stats.ratingAverage.toFixed(1) : "—"}</strong>
+                  <span>Rating ({detail.stats.ratingCount})</span>
+                </article>
+                <article>
+                  <strong>{money(detail.earnings.totalEarnings)}</strong>
+                  <span>Total Earnings</span>
+                </article>
+              </div>
+
+              <h4 className="prov-section-title">Basic Information</h4>
+              <dl className="prov-info">
+                <div>
+                  <dt>Full Name</dt>
+                  <dd>{d?.name || provider.name || "—"}</dd>
+                </div>
+                <div>
+                  <dt>Email</dt>
+                  <dd>{d?.email || provider.email || "—"}</dd>
+                </div>
+                <div>
+                  <dt>Phone</dt>
+                  <dd>{d?.phoneNumber || provider.phoneNumber || "—"}</dd>
+                </div>
+                <div>
+                  <dt>Service Area</dt>
+                  <dd>{d?.serviceArea || provider.serviceArea || "—"}</dd>
+                </div>
+                <div>
+                  <dt>Home Address</dt>
+                  <dd>
+                    {joinParts([
+                      d?.providerAddress?.streetAddress,
+                      d?.providerAddress?.city,
+                      d?.providerAddress?.postcode,
+                      d?.providerAddress?.country,
+                    ])}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Service Location</dt>
+                  <dd>
+                    {joinParts([
+                      d?.serviceLocationAddress?.streetAddress,
+                      d?.serviceLocationAddress?.city,
+                      d?.serviceLocationAddress?.postcode,
+                    ])}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Joined</dt>
+                  <dd>{fmtDate(d?.createdAt || provider.createdAt)}</dd>
+                </div>
+                <div>
+                  <dt>Daily Wash Limit</dt>
+                  <dd>{d?.dailyWashLimit ?? provider.dailyWashLimit ?? "—"} per day</dd>
+                </div>
+                <div>
+                  <dt>Account</dt>
+                  <dd>{provider.accountStatus === "disabled" ? "Deactivated" : "Enabled"}</dd>
+                </div>
+              </dl>
+
+              <h4 className="prov-section-title">
+                Verification
+                <span className={`prov-verify-chip prov-verify-${verificationStatus}`}>
+                  {verificationStatus === "approved"
+                    ? "Verified"
+                    : verificationStatus === "pending"
+                      ? "Under review"
+                      : verificationStatus === "rejected"
+                        ? "Rejected"
+                        : "Not submitted"}
+                </span>
+              </h4>
+              {d?.adminVerification?.rejectionReason ? (
+                <p className="prov-reject-reason">
+                  Rejection reason: {d.adminVerification.rejectionReason}
+                </p>
+              ) : null}
+              <ul className="prov-doc-list">
+                {docRows.map((row) => (
+                  <li key={row.label}>
+                    <span>{row.label}</span>
+                    <span className={`prov-doc-state prov-doc-${row.state}`}>
+                      {row.state === "verified" ? (
+                        <>
+                          <ShieldCheck size={14} /> Verified
+                        </>
+                      ) : row.state === "uploaded" ? (
+                        <>
+                          <Clock size={14} /> Uploaded
+                        </>
+                      ) : (
+                        <>
+                          <TriangleAlert size={14} /> Missing
+                        </>
+                      )}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+
+              <h4 className="prov-section-title">
+                Services Offered
+                <button
+                  className="prov-link-button"
+                  type="button"
+                  onClick={() => setTab("services")}
+                >
+                  Edit Services
+                </button>
+              </h4>
+              {detail.services.length === 0 ? (
+                <p className="prov-muted">No services added yet.</p>
+              ) : (
+                <ul className="prov-service-list">
+                  {detail.services.map((service) => (
+                    <li key={service._id}>
+                      <span>
+                        <span
+                          className={`prov-dot ${service.isActive ? "prov-dot-on" : "prov-dot-off"}`}
+                        />
+                        {service.title}
+                      </span>
+                      <strong>{money(service.price)}</strong>
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              <h4 className="prov-section-title">Recent Activity</h4>
+              {detail.recentActivity.length === 0 ? (
+                <p className="prov-muted">No recent activity.</p>
+              ) : (
+                <ul className="prov-activity-list">
+                  {detail.recentActivity.map((item, index) => (
+                    <li key={`${item.type}-${index}`}>
+                      <span className="prov-activity-icon">
+                        {item.type === "booking_completed" ? (
+                          <CarFront size={15} />
+                        ) : item.type === "payout" ? (
+                          <BadgePoundSterling size={15} />
+                        ) : item.type === "review" ? (
+                          <Star size={15} />
+                        ) : (
+                          <ShieldCheck size={15} />
+                        )}
+                      </span>
+                      <span className="prov-activity-text">
+                        <strong>{item.title}</strong>
+                        <small>
+                          {[item.ref, item.amount != null ? money(item.amount) : null, item.stars ? `Rated ${item.stars} stars` : null]
+                            .filter(Boolean)
+                            .join(" • ")}
+                        </small>
+                      </span>
+                      <span className="prov-activity-time">
+                        {item.createdAt ? relativeDate(item.createdAt) : ""}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </>
+          )}
+        </div>
+
+        <div className="prov-panel-footer">
+          <button
+            className="prov-btn prov-btn-ghost"
+            type="button"
+            onClick={() => (window.location.href = `/washers/${provider._id}`)}
+          >
+            <Pencil size={14} /> Edit Profile
+          </button>
+          {provider.enforcement?.status === "suspended" ||
+          provider.enforcement?.status === "banned" ? (
+            <button
+              className="prov-btn prov-btn-primary"
+              type="button"
+              onClick={() => onAction("reactivate", provider)}
+            >
+              <UserCheck size={14} /> Reactivate
+            </button>
+          ) : (
+            <button
+              className="prov-btn prov-btn-danger"
+              type="button"
+              onClick={() => onAction("suspend", provider)}
+            >
+              <Ban size={14} /> Suspend
+            </button>
+          )}
+          {provider.accountStatus === "disabled" ? (
+            <button
+              className="prov-btn prov-btn-primary"
+              type="button"
+              onClick={() => onAction("activate", provider)}
+            >
+              <Power size={14} /> Activate
+            </button>
+          ) : (
+            <button
+              className="prov-btn prov-btn-dark"
+              type="button"
+              onClick={() => onAction("deactivate", provider)}
+            >
+              <Power size={14} /> Deactivate
+            </button>
+          )}
+        </div>
+      </aside>
+    </div>
+  );
+}
+
 export function WashersPageContent() {
   const queryClient = useQueryClient();
   const user = useDashboardUser();
@@ -1477,6 +1926,8 @@ export function WashersPageContent() {
   const [selected, setSelected] = useState<string[]>([]);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
+  const [panelId, setPanelId] = useState<string | null>(null);
+
   // ─── Step 3: ••• action menu, confirm modals, toast ───
   const [menuFor, setMenuFor] = useState<string | null>(null);
   const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null);
@@ -1533,6 +1984,10 @@ export function WashersPageContent() {
 
   const menuProvider = menuFor
     ? washers.find((washer) => washer._id === menuFor)
+    : undefined;
+
+  const panelProvider = panelId
+    ? washers.find((washer) => washer._id === panelId)
     : undefined;
 
   const openAction = (kind: ProviderActionKind, provider: ProviderListItem) => {
@@ -1954,9 +2409,7 @@ export function WashersPageContent() {
                   className={`clickable-row${
                     selected.includes(washer._id) ? " prov-row-selected" : ""
                   }`}
-                  onClick={() =>
-                    (window.location.href = `/washers/${washer._id}`)
-                  }
+                  onClick={() => setPanelId(washer._id)}
                 >
                   <td
                     className="prov-check-cell"
@@ -2154,7 +2607,10 @@ export function WashersPageContent() {
           <button
             className="prov-menu-item"
             type="button"
-            onClick={() => (window.location.href = `/washers/${menuProvider._id}`)}
+            onClick={() => {
+              setMenuFor(null);
+              setPanelId(menuProvider._id);
+            }}
           >
             <Eye size={15} /> View Details
           </button>
@@ -2376,6 +2832,14 @@ export function WashersPageContent() {
           )}
           {toast.text}
         </div>
+      ) : null}
+      {panelProvider ? (
+        <ProviderDetailPanel
+          provider={panelProvider}
+          displayId={idNumbers.get(panelProvider._id) || ""}
+          onClose={() => setPanelId(null)}
+          onAction={openAction}
+        />
       ) : null}
     </section>
   );
