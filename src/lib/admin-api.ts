@@ -1240,3 +1240,58 @@ export async function getAdminProviderDetail(providerId: string) {
   );
   return response.data.data;
 }
+
+export interface ProviderNoteItem {
+  _id: string;
+  text: string;
+  authorName: string;
+  authorRole?: string;
+  createdAt: string;
+}
+
+export async function getProviderNotes(providerId: string) {
+  const response = await api.get<ApiEnvelope<ProviderNoteItem[]>>(
+    `/admin/providers/${providerId}/notes`
+  );
+  return response.data.data;
+}
+
+export async function addProviderNote(providerId: string, text: string) {
+  const response = await api.post<ApiEnvelope<ProviderNoteItem>>(
+    `/admin/providers/${providerId}/notes`,
+    { text }
+  );
+  return response.data.data;
+}
+
+export async function deleteProviderNote(providerId: string, noteId: string) {
+  const response = await api.delete<ApiEnvelope<{ _id: string }>>(
+    `/admin/providers/${providerId}/notes/${noteId}`
+  );
+  return response.data.data;
+}
+
+export async function sendProviderMessage(
+  providerId: string,
+  payload: { title?: string; message: string }
+) {
+  const response = await api.post<ApiEnvelope<{ providerId: string }>>(
+    `/admin/providers/${providerId}/message`,
+    payload
+  );
+  return response.data.data;
+}
+
+export async function createAdminProvider(payload: {
+  name: string;
+  email: string;
+  phoneNumber: string;
+  password: string;
+  serviceArea?: string;
+}) {
+  const response = await api.post<ApiEnvelope<AdminUser>>(
+    "/admin/providers",
+    payload
+  );
+  return response.data.data;
+}

@@ -33,6 +33,11 @@ import {
   getDashboardSettings,
   getStaffAccounts,
   getAdminProviderDetail,
+  getProviderNotes,
+  addProviderNote,
+  deleteProviderNote,
+  sendProviderMessage,
+  createAdminProvider,
   getWashers,
   updateAdminAddon,
   updateAdminMe,
@@ -87,6 +92,7 @@ import {
   Settings,
   ReceiptText,
   Save,
+  Send,
   ShieldCheck,
   SlidersHorizontal,
   Star,
@@ -97,7 +103,7 @@ import {
   Users,
   X,
 } from "lucide-react";
-import { FormEvent, MouseEvent as ReactMouseEvent, useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, FormEvent, MouseEvent as ReactMouseEvent, useEffect, useMemo, useRef, useState } from "react";
 import { io } from "socket.io-client";
 
 const menuOptions = [
@@ -1722,18 +1728,258 @@ function ProviderMapModal({
   );
 }
 
+
+// ─── Step 7: Send Message modal (row menu + detail panel dono use karte) ────
+function ProviderMessageModal({
+  provider,
+  onClose,
+  onSent,
+}: {
+  provider: ProviderListItem;
+  onClose: () => void;
+  onSent: (text: string) => void;
+}) {
+  const [title, setTitle] = useState("");
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const send = async () => {
+    if (!message.trim()) {
+      setError("Message is required.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      await sendProviderMessage(provider._id, {
+        title: title.trim() || undefined,
+        message: message.trim(),
+      });
+      onSent(`Message sent to ${provider.name || "provider"}.`);
+    } catch (err) {
+      setError(
+        (err as { response?: { data?: { message?: string } } })?.response?.data
+          ?.message ||
+          "Message could not be sent. Check your connection and try again."
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="prov-modal-overlay" onClick={onClose}>
+      <div className="prov-modal" onClick={(event) => event.stopPropagation()}>
+        <h3>Send Message</h3>
+        <p>
+          To {provider.name || "provider"} — the message is saved in their app
+          inbox and also sent as a push notification.
+        </p>
+        <label className="prov-field">
+          <span>Title (optional)</span>
+          <input
+            className="prov-input"
+            value={title}
+            onChange={(event) => setTitle(event.target.value)}
+            placeholder="Message from OWVO"
+            maxLength={80}
+          />
+        </label>
+        <label className="prov-field">
+          <span>Message</span>
+          <textarea
+            className="prov-textarea"
+            value={message}
+            onChange={(event) => setMessage(event.target.value)}
+            placeholder="Write your message..."
+            maxLength={1000}
+          />
+        </label>
+        <div className="prov-char-count">{message.length}/1000</div>
+        {error ? <div className="prov-modal-error">{error}</div> : null}
+        <div className="prov-modal-actions">
+          <button
+            className="prov-btn prov-btn-ghost"
+            type="button"
+            disabled={busy}
+            onClick={onClose}
+          >
+            Cancel
+          </button>
+          <button
+            className="prov-btn prov-btn-primary"
+            type="button"
+            disabled={busy}
+            onClick={send}
+          >
+            {busy ? <Loader2 className="prov-spin" size={14} /> : <Send size={14} />} Send Message
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Step 7: Add Provider modal ─────────────────────────────────────────────
+function AddProviderModal({
+  onClose,
+  onCreated,
+}: {
+  onClose: () => void;
+  onCreated: (text: string) => void;
+}) {
+  const queryClient = useQueryClient();
+  const [form, setForm] = useState({
+    name: "",
+    email: "",
+    phoneNumber: "",
+    password: "",
+    serviceArea: "",
+  });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const set =
+    (key: keyof typeof form) => (event: ChangeEvent<HTMLInputElement>) =>
+      setForm((prev) => ({ ...prev, [key]: event.target.value }));
+  const submit = async () => {
+    if (!form.name.trim()) {
+      setError("Full name is required.");
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) {
+      setError("A valid email address is required.");
+      return;
+    }
+    if (!form.phoneNumber.trim()) {
+      setError("Phone number is required.");
+      return;
+    }
+    if (form.password.length < 6) {
+      setError("Password must be at least 6 characters.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      await createAdminProvider({
+        name: form.name.trim(),
+        email: form.email.trim(),
+        phoneNumber: form.phoneNumber.trim(),
+        password: form.password,
+        serviceArea: form.serviceArea.trim() || undefined,
+      });
+      await queryClient.invalidateQueries({ queryKey: ["washers"] });
+      onCreated(
+        `Provider ${form.name.trim()} created. They can log in to the provider app now and will show as Pending until their documents are verified.`
+      );
+    } catch (err) {
+      setError(
+        (err as { response?: { data?: { message?: string } } })?.response?.data
+          ?.message ||
+          "Provider could not be created. Check your connection and try again."
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="prov-modal-overlay" onClick={onClose}>
+      <div className="prov-modal" onClick={(event) => event.stopPropagation()}>
+        <h3>Add Provider</h3>
+        <p>
+          Creates a provider account. The provider completes their documents
+          and bank details in the app; the account shows as Pending until
+          verification is approved.
+        </p>
+        <label className="prov-field">
+          <span>Full name</span>
+          <input
+            className="prov-input"
+            value={form.name}
+            onChange={set("name")}
+            placeholder="e.g. John Smith"
+            autoComplete="off"
+          />
+        </label>
+        <label className="prov-field">
+          <span>Email</span>
+          <input
+            className="prov-input"
+            type="email"
+            value={form.email}
+            onChange={set("email")}
+            placeholder="provider@example.com"
+            autoComplete="off"
+          />
+        </label>
+        <label className="prov-field">
+          <span>Phone number</span>
+          <input
+            className="prov-input"
+            value={form.phoneNumber}
+            onChange={set("phoneNumber")}
+            placeholder="+44..."
+            autoComplete="off"
+          />
+        </label>
+        <label className="prov-field">
+          <span>Password (min 6 characters)</span>
+          <input
+            className="prov-input"
+            type="password"
+            value={form.password}
+            onChange={set("password")}
+            placeholder="Set a starting password"
+            autoComplete="new-password"
+          />
+        </label>
+        <label className="prov-field">
+          <span>Service area (optional)</span>
+          <input
+            className="prov-input"
+            value={form.serviceArea}
+            onChange={set("serviceArea")}
+            placeholder="e.g. Birmingham"
+            autoComplete="off"
+          />
+        </label>
+        {error ? <div className="prov-modal-error">{error}</div> : null}
+        <div className="prov-modal-actions">
+          <button
+            className="prov-btn prov-btn-ghost"
+            type="button"
+            disabled={busy}
+            onClick={onClose}
+          >
+            Cancel
+          </button>
+          <button
+            className="prov-btn prov-btn-primary"
+            type="button"
+            disabled={busy}
+            onClick={submit}
+          >
+            {busy ? <Loader2 className="prov-spin" size={14} /> : <Plus size={14} />} Create Provider
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ProviderDetailPanel({
   provider,
   displayId,
   allProviders,
   onClose,
   onAction,
+  onMessage,
 }: {
   provider: ProviderListItem;
   displayId: string;
   allProviders: ProviderListItem[];
   onClose: () => void;
   onAction: (kind: ProviderActionKind, provider: ProviderListItem) => void;
+  onMessage: (provider: ProviderListItem) => void;
 }) {
   const [tab, setTab] = useState("overview");
   const [mapOpen, setMapOpen] = useState(false);
@@ -1807,31 +2053,53 @@ function ProviderDetailPanel({
   };
 
   // ─── Step 5: Services tab — daily wash limit ───
-  const [limitMax, setLimitMax] = useState<number>(
-    provider.dailyWashLimitMax ?? provider.dailyWashLimit ?? 7
-  );
-  const [limitBusy, setLimitBusy] = useState(false);
   useEffect(() => {
-    setLimitMax(provider.dailyWashLimitMax ?? provider.dailyWashLimit ?? 7);
     setRejectOpen(false);
     setRejectReason("");
   }, [provider._id]);
-  const saveLimit = async () => {
-    if (!Number.isFinite(limitMax) || limitMax < 1 || limitMax > 50) {
-      notify("error", "Daily wash limit must be between 1 and 50.");
-      return;
-    }
-    setLimitBusy(true);
+
+  // ─── Step 7: Notes tab ───
+  const notesQuery = useQuery({
+    queryKey: ["provider-notes", provider._id],
+    queryFn: () => getProviderNotes(provider._id),
+    enabled: tab === "notes",
+  });
+  const [noteText, setNoteText] = useState("");
+  const [noteBusy, setNoteBusy] = useState(false);
+  const [noteDeleteBusy, setNoteDeleteBusy] = useState(false);
+  const [confirmDeleteNoteId, setConfirmDeleteNoteId] = useState<string | null>(
+    null
+  );
+  const submitNote = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!noteText.trim()) return;
+    setNoteBusy(true);
     try {
-      await updateProviderDailyWashLimit(provider._id, {
-        dailyWashLimitMax: Math.round(limitMax),
+      await addProviderNote(provider._id, noteText.trim());
+      setNoteText("");
+      await queryClient.invalidateQueries({
+        queryKey: ["provider-notes", provider._id],
       });
-      notify("success", "Daily wash limit updated.");
-      await queryClient.invalidateQueries({ queryKey: ["washers"] });
+      notify("success", "Note added.");
     } catch (error) {
       notify("error", serverError(error));
     } finally {
-      setLimitBusy(false);
+      setNoteBusy(false);
+    }
+  };
+  const removeNote = async (noteId: string) => {
+    setNoteDeleteBusy(true);
+    try {
+      await deleteProviderNote(provider._id, noteId);
+      setConfirmDeleteNoteId(null);
+      await queryClient.invalidateQueries({
+        queryKey: ["provider-notes", provider._id],
+      });
+      notify("success", "Note deleted.");
+    } catch (error) {
+      notify("error", serverError(error));
+    } finally {
+      setNoteDeleteBusy(false);
     }
   };
 
@@ -2013,9 +2281,7 @@ function ProviderDetailPanel({
           <button
             className="prov-panel-action"
             type="button"
-            onClick={() =>
-              notify("info", "Messaging is coming in Step 7, together with provider Notes.")
-            }
+            onClick={() => onMessage(provider)}
           >
             <MessageSquareText size={15} /> Message
           </button>
@@ -2055,12 +2321,85 @@ function ProviderDetailPanel({
 
         <div className="prov-panel-body">
           {tab === "notes" ? (
-            <div className="prov-state">
-              <p>
-                The {tabs.find((item) => item.key === tab)?.label} tab will be added in{" "}
-                {tabs.find((item) => item.key === tab)?.step}.
-              </p>
-            </div>
+            <>
+              <form className="prov-note-form" onSubmit={submitNote}>
+                <label className="prov-field">
+                  <span>Add a note about this provider</span>
+                  <textarea
+                    className="prov-textarea"
+                    placeholder="e.g. Called about the insurance renewal — provider will re-upload this week."
+                    value={noteText}
+                    onChange={(event) => setNoteText(event.target.value)}
+                    maxLength={2000}
+                  />
+                </label>
+                <div className="prov-note-form-foot">
+                  <small>{noteText.length}/2000</small>
+                  <button
+                    className="prov-btn prov-btn-primary"
+                    type="submit"
+                    disabled={noteBusy || !noteText.trim()}
+                  >
+                    {noteBusy ? <Loader2 className="prov-spin" size={14} /> : <Plus size={14} />} Add Note
+                  </button>
+                </div>
+              </form>
+
+              {notesQuery.isLoading ? (
+                <div className="prov-state">
+                  <Loader2 className="prov-spin" size={18} /> Loading notes...
+                </div>
+              ) : notesQuery.isError ? (
+                <div className="prov-error">
+                  <TriangleAlert size={20} />
+                  <div>
+                    <strong>Connection error</strong>
+                    <p>Notes could not be loaded. Check your connection and try again.</p>
+                  </div>
+                  <button className="prov-retry" type="button" onClick={() => notesQuery.refetch()}>
+                    <RefreshCw size={14} /> Retry
+                  </button>
+                </div>
+              ) : (notesQuery.data || []).length === 0 ? (
+                <p className="prov-muted">
+                  No notes yet. Notes are only visible to the admin team — the
+                  provider cannot see them.
+                </p>
+              ) : (
+                <ul className="prov-notes-list">
+                  {(notesQuery.data || []).map((note) => (
+                    <li key={note._id} className="prov-note-card">
+                      <div className="prov-note-head">
+                        <strong>{note.authorName}</strong>
+                        {note.authorRole ? <span className="prov-note-role">{note.authorRole}</span> : null}
+                        <span className="prov-note-time">{relativeDate(note.createdAt)}</span>
+                        {confirmDeleteNoteId === note._id ? (
+                          <span className="prov-note-confirm">
+                            Delete?
+                            <button type="button" className="prov-note-yes" disabled={noteDeleteBusy} onClick={() => removeNote(note._id)}>
+                              Yes
+                            </button>
+                            <button type="button" className="prov-note-no" onClick={() => setConfirmDeleteNoteId(null)}>
+                              No
+                            </button>
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            className="prov-note-del"
+                            aria-label="Delete note"
+                            onClick={() => setConfirmDeleteNoteId(note._id)}
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        )}
+                      </div>
+                      <p>{note.text}</p>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </>
           ) : detailQuery.isLoading ? (
             <div className="prov-state">
               <Loader2 className="prov-spin" size={18} /> Loading provider details...
@@ -2755,26 +3094,14 @@ function ProviderDetailPanel({
               <div className="prov-limit-row">
                 <div>
                   <strong>{provider.dailyWashLimit ?? "—"} washes / day</strong>
-                  <small>Current limit set by the provider</small>
+                  <small>
+                    The provider sets their daily wash limit in their own app —
+                    it can only be viewed here.
+                  </small>
                 </div>
-                <label className="prov-limit-input">
-                  <span>Maximum allowed</span>
-                  <input
-                    type="number"
-                    min={1}
-                    max={50}
-                    value={limitMax}
-                    onChange={(event) => setLimitMax(Number(event.target.value))}
-                  />
-                </label>
-                <button
-                  className="prov-btn prov-btn-primary"
-                  type="button"
-                  disabled={limitBusy}
-                  onClick={saveLimit}
-                >
-                  {limitBusy ? <Loader2 className="prov-spin" size={14} /> : <Save size={14} />} Save
-                </button>
+                <span className="prov-doc-state prov-doc-uploaded">
+                  Provider controlled
+                </span>
               </div>
 
               <h4 className="prov-section-title">Working Hours</h4>
@@ -2908,6 +3235,9 @@ export function WashersPageContent() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
   const [panelId, setPanelId] = useState<string | null>(null);
+  const [addOpen, setAddOpen] = useState(false);
+  const [messageProvider, setMessageProvider] =
+    useState<ProviderListItem | null>(null);
 
   // ─── Step 3: ••• action menu, confirm modals, toast ───
   const [menuFor, setMenuFor] = useState<string | null>(null);
@@ -3209,11 +3539,7 @@ export function WashersPageContent() {
         <button
           className="primary-button prov-add-button"
           type="button"
-          onClick={() =>
-            window.alert(
-              "Add Provider form will be added in Step 7, together with its backend."
-            )
-          }
+          onClick={() => setAddOpen(true)}
         >
           <Plus size={16} /> Add Provider
         </button>
@@ -3628,9 +3954,7 @@ export function WashersPageContent() {
             type="button"
             onClick={() => {
               setMenuFor(null);
-              window.alert(
-                "Send Message will be added in Step 7, together with provider Notes."
-              );
+              setMessageProvider(menuProvider);
             }}
           >
             <MessageSquareText size={15} /> Send Message
@@ -3821,6 +4145,28 @@ export function WashersPageContent() {
           allProviders={washers}
           onClose={() => setPanelId(null)}
           onAction={openAction}
+          onMessage={(p) => setMessageProvider(p)}
+        />
+      ) : null}
+
+      {messageProvider ? (
+        <ProviderMessageModal
+          provider={messageProvider}
+          onClose={() => setMessageProvider(null)}
+          onSent={(text) => {
+            setMessageProvider(null);
+            setToast({ type: "success", text });
+          }}
+        />
+      ) : null}
+
+      {addOpen ? (
+        <AddProviderModal
+          onClose={() => setAddOpen(false)}
+          onCreated={(text) => {
+            setAddOpen(false);
+            setToast({ type: "success", text });
+          }}
         />
       ) : null}
     </section>
