@@ -5173,7 +5173,7 @@ function CustomerMapModal({
         )}
         {hasCoords ? (
           <div className="prov-map-foot">
-            <span className="prov-map-status">
+            <span className="cust-map-status">
               <span className="cust-map-dot" style={{ background: pinColor }} />
               {sourceLabel}
               {effective?.source === "live" && effective?.updatedAt

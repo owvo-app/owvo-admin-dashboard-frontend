@@ -6439,3 +6439,16 @@ a {
 .cust-map-back {
   margin-left: auto;
 }
+
+/* ─── Customers fix 4: map footer ka label ───
+   prov-map-status asal me providers map ki full-area safed overlay class
+   hai (loading/error ke liye) — wo label par lagi to poori screen par
+   phail gayi thi. Label ke liye ye alag halki class hai. */
+.cust-map-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.prov-map-card {
+  position: relative;
+}
