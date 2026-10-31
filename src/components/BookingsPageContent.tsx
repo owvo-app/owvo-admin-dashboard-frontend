@@ -34,6 +34,7 @@ import {
   bkDate,
   bkPaymentBadge,
   bkShortId,
+  bkVehicleOf,
   bkTime,
   type BookingActionKind,
 } from "./bookings/BookingActionModals";
@@ -89,12 +90,10 @@ function BookingRow({
   const customerPhoto = (booking.user as any)?.photo?.url;
   const providerPhoto = (booking.provider as any)?.photo?.url;
   const rating = booking.providerRating;
-  const vehicleText =
-    (booking as any).vehicleSnapshot?.model ||
-    [booking.vehicleSnapshot?.make, booking.vehicleSnapshot?.model]
-      .filter(Boolean)
-      .join(" ") ||
-    "";
+  const vehInfo = bkVehicleOf(booking);
+  const vehicleText = [vehInfo.line, vehInfo.registrationNo]
+    .filter(Boolean)
+    .join(" · ");
 
   return (
     <tr className="clickable-row" onClick={() => onView(booking._id)}>

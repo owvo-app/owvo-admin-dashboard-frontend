@@ -90,6 +90,43 @@ export const bkPaymentBadge = (booking: {
   return { label: "Pending", cls: "bk2-pay-pending" };
 };
 
+export type BkVehicleInfo = {
+  line: string;
+  registrationNo: string;
+  size: string;
+  image: string;
+  has: boolean;
+};
+
+// Vehicle har haal me nikalo: pehle snapshot (booking ke waqt ki copy),
+// warna populated vehicle record. Dono na hon to has=false — UI imaandaar
+// "Not provided" dikhayegi.
+export const bkVehicleOf = (booking: any): BkVehicleInfo => {
+  const snap = booking?.vehicleSnapshot || {};
+  const veh =
+    booking?.vehicle && typeof booking.vehicle === "object"
+      ? booking.vehicle
+      : {};
+  const pick = (a: any, b: any) =>
+    a !== undefined && a !== null && a !== "" ? a : b;
+  const make = pick(snap.make, veh.make) || "";
+  const model = pick(snap.model, veh.model) || "";
+  const year = pick(snap.year, veh.year);
+  const registrationNo = pick(snap.registrationNo, veh.registrationNo) || "";
+  const size = pick(snap.size, veh.size) || "";
+  const rawImage = pick(snap.image, veh.image);
+  const image =
+    typeof rawImage === "string" ? rawImage : rawImage?.url || "";
+  const line = [make, model, year].filter(Boolean).join(" ");
+  return {
+    line,
+    registrationNo,
+    size,
+    image,
+    has: Boolean(line || registrationNo),
+  };
+};
+
 const CANCEL_REASONS = [
   "Customer requested cancellation",
   "Provider unavailable",

@@ -5326,6 +5326,7 @@ function CustomerDetailPanel({
   const tabs = [
     { key: "overview", label: "Overview" },
     { key: "bookings", label: "Bookings" },
+    { key: "vehicles", label: "Vehicles" },
     { key: "payments", label: "Payments" },
     { key: "reviews", label: "Reviews" },
     { key: "notes", label: "Notes" },
@@ -5675,40 +5676,6 @@ function CustomerDetailPanel({
                 </div>
               )}
 
-              <h3 className="prov-section-title">Customer Vehicles</h3>
-              {detail.vehicles.length === 0 ? (
-                <p className="prov-muted">No vehicles saved yet.</p>
-              ) : (
-                <div className="cust-vehicle-list">
-                  {detail.vehicles.map((vehicle) => (
-                    <div key={vehicle._id} className="cust-vehicle-card">
-                      {vehicle.image ? (
-                        <img
-                          className="cust-bk-photo"
-                          alt={vehicle.registrationNo || "Vehicle"}
-                          src={resolveReportPhotoUrl(vehicle.image)}
-                        />
-                      ) : (
-                        <span className="prov-bk-avatar">
-                          <CarFront size={16} />
-                        </span>
-                      )}
-                      <div className="prov-bk-main">
-                        <strong>
-                          {vehicle.registrationNo || "No plate"}
-                          {vehicle.isDefault ? " • Default" : ""}
-                        </strong>
-                        <small>
-                          {[vehicle.make, vehicle.model, vehicle.year, vehicle.size, vehicle.colour]
-                            .filter(Boolean)
-                            .join(" • ") || "Details not provided"}
-                        </small>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-
               <h3 className="prov-section-title">Payment Methods</h3>
               <p className="prov-muted">
                 No saved cards on file. This customer pays per booking in the
@@ -5766,6 +5733,68 @@ function CustomerDetailPanel({
                   <div className="prov-bk-list">{rows.map(bookingRow)}</div>
                 );
               })()}
+            </>
+          ) : tab === "vehicles" ? (
+            <>
+              <div className="cust-section-head">
+                <h3 className="prov-section-title">
+                  Vehicles ({detail.vehicles.length})
+                </h3>
+              </div>
+              {detail.vehicles.length === 0 ? (
+                <p className="prov-muted">
+                  No vehicles saved yet. Vehicles the customer adds in the
+                  app will appear here.
+                </p>
+              ) : (
+                <div className="cust-veh-grid">
+                  {detail.vehicles.map((vehicle) => (
+                    <div key={vehicle._id} className="cust-veh-card">
+                      {vehicle.image ? (
+                        <img
+                          className="cust-veh-photo"
+                          alt={vehicle.registrationNo || "Vehicle"}
+                          src={resolveReportPhotoUrl(vehicle.image)}
+                        />
+                      ) : (
+                        <div className="cust-veh-photo cust-veh-photo-empty">
+                          <CarFront size={30} />
+                        </div>
+                      )}
+                      <div className="cust-veh-body">
+                        <strong className="cust-veh-plate">
+                          {vehicle.registrationNo || "No plate"}
+                          {vehicle.isDefault ? (
+                            <span className="cust-veh-default">Default</span>
+                          ) : null}
+                        </strong>
+                        <div className="cust-veh-rows">
+                          <div>
+                            <span>Make</span>
+                            <strong>{vehicle.make || "—"}</strong>
+                          </div>
+                          <div>
+                            <span>Model</span>
+                            <strong>{vehicle.model || "—"}</strong>
+                          </div>
+                          <div>
+                            <span>Year</span>
+                            <strong>{vehicle.year || "—"}</strong>
+                          </div>
+                          <div>
+                            <span>Size</span>
+                            <strong>{vehicle.size || "—"}</strong>
+                          </div>
+                          <div>
+                            <span>Colour</span>
+                            <strong>{vehicle.colour || "—"}</strong>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </>
           ) : tab === "payments" ? (
             <>
@@ -6636,6 +6665,16 @@ export function CustomersPageContent() {
             }}
           >
             <CalendarDays size={15} /> View Bookings
+          </button>
+          <button
+            className="prov-menu-item"
+            type="button"
+            onClick={() => {
+              setMenuFor(null);
+              openPanel(menuCustomer, "vehicles");
+            }}
+          >
+            <CarFront size={15} /> View Vehicles
           </button>
           <button
             className="prov-menu-item"

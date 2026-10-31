@@ -41,6 +41,7 @@ import {
   BookingActionModal,
   bkCan,
   bkDateTime,
+  bkVehicleOf,
   bkPaymentBadge,
   bkShortId,
   type BookingActionKind,
@@ -651,7 +652,7 @@ export function BookingDetailBody({
       <tr><td>Customer</td><td>${esc(b.user?.name)} (${esc((b.user as any)?.phoneNumber || "")})</td></tr>
       <tr><td>Provider</td><td>${esc(b.provider?.name)} (${esc((b.provider as any)?.phoneNumber || "")})</td></tr>
       <tr><td>Service</td><td>${esc(b.service?.title)}</td></tr>
-      <tr><td>Vehicle</td><td>${esc([b.vehicleSnapshot?.make, b.vehicleSnapshot?.model, b.vehicleSnapshot?.registrationNo].filter(Boolean).join(" "))}</td></tr>
+      <tr><td>Vehicle</td><td>${esc([bkVehicleOf(b).line, bkVehicleOf(b).registrationNo].filter(Boolean).join(" · "))}</td></tr>
       <tr><td>Address</td><td>${esc(b.address?.addressLine)}</td></tr>
       <tr><td>Total</td><td>${esc(money(b.finalPrice))}</td></tr>
       </table></body></html>`);
@@ -709,13 +710,7 @@ export function BookingDetailBody({
     { status: "completed", label: "Complete", icon: BadgeCheck },
     { status: "cancelled", label: "Cancel", icon: XCircle },
   ];
-  const vehicleLine = [
-    booking.vehicleSnapshot?.make,
-    booking.vehicleSnapshot?.model,
-    booking.vehicleSnapshot?.year,
-  ]
-    .filter(Boolean)
-    .join(" ");
+  const vehicle = bkVehicleOf(booking);
   const paidRecord = (booking.payments || []).find(
     (p) => p.type === "booking" && p.paymentStatus === "complete"
   );
@@ -970,12 +965,12 @@ export function BookingDetailBody({
             <div className="booking-panel-section">
               <h4>Service</h4>
               <div className="bk2-service-card">
-                {booking.vehicleSnapshot?.image ? (
+                {vehicle.image ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
                     alt="Vehicle"
                     className="bk2-service-img"
-                    src={booking.vehicleSnapshot.image}
+                    src={vehicle.image}
                   />
                 ) : null}
                 <div>
@@ -1003,12 +998,11 @@ export function BookingDetailBody({
                 </div>
                 <div className="bk2-mini-card">
                   <span>🚗 Vehicle</span>
-                  <strong>{vehicleLine || "Not provided"}</strong>
+                  <strong>{vehicle.line || "Not provided"}</strong>
                   <small>
-                    {booking.vehicleSnapshot?.registrationNo || ""}
-                    {booking.vehicleSnapshot?.size
-                      ? ` · ${booking.vehicleSnapshot.size}`
-                      : ""}
+                    {[vehicle.registrationNo, vehicle.size]
+                      .filter(Boolean)
+                      .join(" · ")}
                   </small>
                 </div>
                 <div className="bk2-mini-card">
