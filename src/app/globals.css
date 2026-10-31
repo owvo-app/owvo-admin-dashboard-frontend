@@ -6434,3 +6434,8 @@ a {
   font-weight: 400;
   color: #667085;
 }
+
+/* ─── Customers fix 3: map footer back button ─── */
+.cust-map-back {
+  margin-left: auto;
+}

@@ -5091,7 +5091,7 @@ function CustomerMapModal({
         const position = { lat: effective.lat, lng: effective.lng };
         const map = new googleMaps.Map(mapRef.current, {
           center: position,
-          zoom: 14,
+          zoom: 15,
           mapTypeControl: false,
           streetViewControl: false,
         });
@@ -5102,14 +5102,16 @@ function CustomerMapModal({
           title: customer.name || "Customer",
           icon: {
             url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(pinSvg)}`,
-            scaledSize: new googleMaps.Size(38, 48),
-            anchor: new googleMaps.Point(19, 46),
+            scaledSize: new googleMaps.Size(46, 58),
+            anchor: new googleMaps.Point(23, 56),
           },
         });
         const info = new googleMaps.InfoWindow({
           content: `<strong>${customer.name || "Customer"}</strong><br/>${sourceLabel}`,
         });
-        info.open(map, marker);
+        // InfoWindow khud nahi khulta — wo pin ko chhupa deta tha. Pin par
+        // click karne se khulta hai; pin har waqt pura nazar ata hai.
+        marker.addListener("click", () => info.open(map, marker));
         // Modal khulne ke baad map ko refresh karna zaroori hai — warna
         // Google ki tiles aadhi/grey reh jati hain.
         window.setTimeout(() => {
@@ -5178,6 +5180,13 @@ function CustomerMapModal({
                 ? ` • updated ${relativeDate(effective.updatedAt)}`
                 : ""}
             </span>
+            <button
+              className="prov-btn prov-btn-dark cust-map-back"
+              type="button"
+              onClick={onClose}
+            >
+              <ChevronLeft size={14} /> Back to Customer
+            </button>
           </div>
         ) : null}
       </div>
