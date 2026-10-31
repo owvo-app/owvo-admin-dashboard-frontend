@@ -30,6 +30,19 @@ import {
   getAdminReports,
   getAdminServicesPricing,
   getCustomers,
+  getAdminCustomerDetail,
+  createAdminCustomer,
+  updateAdminCustomerProfile,
+  updateCustomerEnforcement,
+  deleteAdminCustomer,
+  getCustomerNotes,
+  addCustomerNote,
+  deleteCustomerNote,
+  sendCustomerMessage,
+  sendCustomerResetPassword,
+  AdminCustomerDetail,
+  AdminCustomerDetailBooking,
+  CustomerNoteItem,
   getDashboardSettings,
   getStaffAccounts,
   getAdminProviderDetail,
@@ -4353,55 +4366,2292 @@ export function WashersPageContent() {
   );
 }
 
-export function CustomersPageContent() {
-  const dateRange = useDashboardDateRange();
-  const customersQuery = useQuery({
-    queryKey: ["customers", dateRange.queryKey],
-    queryFn: () => getCustomers(dateRange.query),
+// ─── Customers redesign — types, helpers, modals, detail panel, page ────────
+// Providers redesign wala hi architecture: list + stat cards + filters +
+// pagination, right slide-in detail panel (5 tabs), ••• menu actions, modals,
+// har jagah asal data + honest empty/error states (dummy data NAHI).
+type CustomerListItem = AdminUser & {
+  accountStatus?: string;
+  totalBookings?: number;
+  totalSpent?: number;
+  residentialAddress?: string;
+  dateOfBirth?: string;
+  location?: { type?: string; coordinates?: number[] };
+  verificationInfo?: { verified?: boolean };
+};
+
+type CustomerDisplayStatus = "active" | "suspended" | "inactive";
+
+type CustomerActionKind =
+  | "suspend"
+  | "reactivate"
+  | "deactivate"
+  | "activate"
+  | "delete"
+  | "reset";
+
+function customerDisplayStatus(
+  customer: CustomerListItem
+): CustomerDisplayStatus {
+  const enforcement = customer.enforcement?.status || "clear";
+  if (enforcement === "suspended" || enforcement === "banned") {
+    return "suspended";
+  }
+  if (customer.accountStatus === "disabled") {
+    return "inactive";
+  }
+  return "active";
+}
+
+const CUSTOMER_BOOKING_LABELS: Record<string, string> = {
+  pending: "Pending",
+  accepted: "Accepted",
+  arrived: "Arrived",
+  ongoing: "Ongoing",
+  completed: "Completed",
+  cancelled: "Cancelled",
+  declined: "Declined",
+};
+
+function CustomerMessageModal({
+  customer,
+  onClose,
+  onSent,
+}: {
+  customer: CustomerListItem;
+  onClose: () => void;
+  onSent: (text: string) => void;
+}) {
+  const [title, setTitle] = useState("");
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const send = async () => {
+    if (!message.trim()) {
+      setError("Message is required.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      await sendCustomerMessage(customer._id, {
+        title: title.trim() || undefined,
+        message: message.trim(),
+      });
+      onSent(`Message sent to ${customer.name || "customer"}.`);
+    } catch (err) {
+      setError(
+        (err as { response?: { data?: { message?: string } } })?.response?.data
+          ?.message ||
+          "Message could not be sent. Check your connection and try again."
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="prov-modal-overlay" onClick={onClose}>
+      <div className="prov-modal" onClick={(event) => event.stopPropagation()}>
+        <h3>Send Message</h3>
+        <p>
+          To {customer.name || "customer"} — the message is saved in their app
+          inbox and also sent as a push notification.
+        </p>
+        <label className="prov-field">
+          <span>Title (optional)</span>
+          <input
+            className="prov-input"
+            value={title}
+            onChange={(event) => setTitle(event.target.value)}
+            placeholder="Message from OWVO"
+            maxLength={80}
+          />
+        </label>
+        <label className="prov-field">
+          <span>Message</span>
+          <textarea
+            className="prov-textarea"
+            value={message}
+            onChange={(event) => setMessage(event.target.value)}
+            placeholder="Write your message..."
+            maxLength={1000}
+          />
+        </label>
+        <div className="prov-char-count">{message.length}/1000</div>
+        {error ? <div className="prov-modal-error">{error}</div> : null}
+        <div className="prov-modal-actions">
+          <button
+            className="prov-btn prov-btn-ghost"
+            type="button"
+            disabled={busy}
+            onClick={onClose}
+          >
+            Cancel
+          </button>
+          <button
+            className="prov-btn prov-btn-primary"
+            type="button"
+            disabled={busy}
+            onClick={send}
+          >
+            {busy ? <Loader2 className="prov-spin" size={14} /> : <Send size={14} />} Send Message
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function AddCustomerModal({
+  onClose,
+  onCreated,
+}: {
+  onClose: () => void;
+  onCreated: (text: string) => void;
+}) {
+  const queryClient = useQueryClient();
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [email, setEmail] = useState("");
+  const [phoneNumber, setPhoneNumber] = useState("");
+  const [password, setPassword] = useState("");
+  const [dateOfBirth, setDateOfBirth] = useState("");
+  const [address, setAddress] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const submit = async () => {
+    if (!firstName.trim()) {
+      setError("First name is required.");
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      setError("A valid email address is required.");
+      return;
+    }
+    if (!phoneNumber.trim()) {
+      setError("Phone number is required.");
+      return;
+    }
+    if (password.length < 6) {
+      setError("Password must be at least 6 characters.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      await createAdminCustomer({
+        name: `${firstName.trim()} ${lastName.trim()}`.trim(),
+        email: email.trim(),
+        phoneNumber: phoneNumber.trim(),
+        password,
+        residentialAddress: address.trim() || undefined,
+        dateOfBirth: dateOfBirth || undefined,
+      });
+      await queryClient.invalidateQueries({ queryKey: ["customers"] });
+      onCreated("Customer created. They can log in to the app right away.");
+    } catch (err) {
+      setError(
+        (err as { response?: { data?: { message?: string } } })?.response?.data
+          ?.message ||
+          "Customer could not be created. Check your connection and try again."
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="prov-modal-overlay" onClick={onClose}>
+      <div className="prov-modal" onClick={(event) => event.stopPropagation()}>
+        <h3>Add Customer</h3>
+        <p>
+          Creates a normal customer account — the customer can log in to the
+          app with this email and password.
+        </p>
+        <div className="cust-form-grid">
+          <label className="prov-field">
+            <span>First Name *</span>
+            <input
+              className="prov-input"
+              value={firstName}
+              onChange={(event) => setFirstName(event.target.value)}
+              placeholder="e.g. Sarah"
+            />
+          </label>
+          <label className="prov-field">
+            <span>Last Name</span>
+            <input
+              className="prov-input"
+              value={lastName}
+              onChange={(event) => setLastName(event.target.value)}
+              placeholder="e.g. Johnson"
+            />
+          </label>
+        </div>
+        <label className="prov-field">
+          <span>Email *</span>
+          <input
+            className="prov-input"
+            type="email"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            placeholder="customer@example.com"
+          />
+        </label>
+        <label className="prov-field">
+          <span>Phone *</span>
+          <input
+            className="prov-input"
+            value={phoneNumber}
+            onChange={(event) => setPhoneNumber(event.target.value)}
+            placeholder="+44..."
+          />
+        </label>
+        <label className="prov-field">
+          <span>Password *</span>
+          <input
+            className="prov-input"
+            type="password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+            placeholder="Minimum 6 characters"
+          />
+        </label>
+        <div className="cust-form-grid">
+          <label className="prov-field">
+            <span>Date of Birth</span>
+            <input
+              className="prov-input"
+              type="date"
+              value={dateOfBirth}
+              onChange={(event) => setDateOfBirth(event.target.value)}
+            />
+          </label>
+          <label className="prov-field">
+            <span>Address</span>
+            <input
+              className="prov-input"
+              value={address}
+              onChange={(event) => setAddress(event.target.value)}
+              placeholder="Street, City, Postcode"
+            />
+          </label>
+        </div>
+        {error ? <div className="prov-modal-error">{error}</div> : null}
+        <div className="prov-modal-actions">
+          <button
+            className="prov-btn prov-btn-ghost"
+            type="button"
+            disabled={busy}
+            onClick={onClose}
+          >
+            Cancel
+          </button>
+          <button
+            className="prov-btn prov-btn-primary"
+            type="button"
+            disabled={busy}
+            onClick={submit}
+          >
+            {busy ? <Loader2 className="prov-spin" size={14} /> : <Plus size={14} />} Create Customer
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EditCustomerModal({
+  customer,
+  onClose,
+  onSaved,
+}: {
+  customer: CustomerListItem;
+  onClose: () => void;
+  onSaved: (text: string) => void;
+}) {
+  const queryClient = useQueryClient();
+  const nameParts = (customer.name || "").trim().split(/\s+/);
+  const [firstName, setFirstName] = useState(nameParts[0] || "");
+  const [lastName, setLastName] = useState(nameParts.slice(1).join(" ") || "");
+  const [email, setEmail] = useState(customer.email || "");
+  const [phoneNumber, setPhoneNumber] = useState(customer.phoneNumber || "");
+  const [dateOfBirth, setDateOfBirth] = useState(
+    customer.dateOfBirth ? customer.dateOfBirth.slice(0, 10) : ""
+  );
+  const [address, setAddress] = useState(customer.residentialAddress || "");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const status = customerDisplayStatus(customer);
+  const save = async () => {
+    if (!firstName.trim()) {
+      setError("First name is required.");
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      setError("A valid email address is required.");
+      return;
+    }
+    if (!phoneNumber.trim()) {
+      setError("Phone number is required.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      await updateAdminCustomerProfile(customer._id, {
+        name: `${firstName.trim()} ${lastName.trim()}`.trim(),
+        email: email.trim(),
+        phoneNumber: phoneNumber.trim(),
+        dateOfBirth: dateOfBirth || "",
+        residentialAddress: address.trim(),
+      });
+      await queryClient.invalidateQueries({ queryKey: ["customers"] });
+      await queryClient.invalidateQueries({
+        queryKey: ["customer-detail", customer._id],
+      });
+      onSaved("Customer details updated.");
+    } catch (err) {
+      setError(
+        (err as { response?: { data?: { message?: string } } })?.response?.data
+          ?.message || "Changes could not be saved. Check your connection and try again."
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="prov-modal-overlay" onClick={onClose}>
+      <div
+        className="prov-modal cust-modal-wide"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <h3>Edit Customer</h3>
+        <p>{customer.name || "Customer"} — changes apply immediately.</p>
+
+        <h4 className="cust-form-section">Basic Information</h4>
+        <div className="cust-form-grid">
+          <label className="prov-field">
+            <span>First Name *</span>
+            <input
+              className="prov-input"
+              value={firstName}
+              onChange={(event) => setFirstName(event.target.value)}
+            />
+          </label>
+          <label className="prov-field">
+            <span>Last Name</span>
+            <input
+              className="prov-input"
+              value={lastName}
+              onChange={(event) => setLastName(event.target.value)}
+            />
+          </label>
+        </div>
+        <label className="prov-field">
+          <span>Date of Birth</span>
+          <input
+            className="prov-input"
+            type="date"
+            value={dateOfBirth}
+            onChange={(event) => setDateOfBirth(event.target.value)}
+          />
+        </label>
+
+        <h4 className="cust-form-section">Contact Details</h4>
+        <div className="cust-form-grid">
+          <label className="prov-field">
+            <span>Email *</span>
+            <input
+              className="prov-input"
+              type="email"
+              value={email}
+              onChange={(event) => setEmail(event.target.value)}
+            />
+          </label>
+          <label className="prov-field">
+            <span>Phone *</span>
+            <input
+              className="prov-input"
+              value={phoneNumber}
+              onChange={(event) => setPhoneNumber(event.target.value)}
+            />
+          </label>
+        </div>
+
+        <h4 className="cust-form-section">Address</h4>
+        <label className="prov-field">
+          <span>Residential Address</span>
+          <input
+            className="prov-input"
+            value={address}
+            onChange={(event) => setAddress(event.target.value)}
+            placeholder="Street, City, Postcode"
+          />
+        </label>
+
+        <h4 className="cust-form-section">Account Settings</h4>
+        <div className="cust-info-list">
+          <div className="cust-info-row">
+            <span>Account status</span>
+            <strong>
+              {status === "active"
+                ? "Active"
+                : status === "suspended"
+                  ? "Suspended"
+                  : "Inactive"}
+            </strong>
+          </div>
+          <div className="cust-info-row">
+            <span>Email verified</span>
+            <strong>{customer.verificationInfo?.verified ? "Yes" : "No"}</strong>
+          </div>
+          <div className="cust-info-row">
+            <span>Password</span>
+            <strong>Use “Reset Password” from the actions menu</strong>
+          </div>
+        </div>
+
+        {error ? <div className="prov-modal-error">{error}</div> : null}
+        <div className="prov-modal-actions">
+          <button
+            className="prov-btn prov-btn-ghost"
+            type="button"
+            disabled={busy}
+            onClick={onClose}
+          >
+            Cancel
+          </button>
+          <button
+            className="prov-btn prov-btn-primary"
+            type="button"
+            disabled={busy}
+            onClick={save}
+          >
+            {busy ? <Loader2 className="prov-spin" size={14} /> : <Save size={14} />} Save Changes
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Customers: View on Map popup (single customer pin) ─────────────────────
+function CustomerMapModal({
+  customer,
+  onClose,
+}: {
+  customer: CustomerListItem;
+  onClose: () => void;
+}) {
+  const mapRef = useRef<HTMLDivElement | null>(null);
+  const [mapError, setMapError] = useState("");
+  const coords = customer.location?.coordinates;
+  const hasCoords =
+    Array.isArray(coords) &&
+    coords.length === 2 &&
+    (coords[0] !== 0 || coords[1] !== 0);
+
+  useEffect(() => {
+    if (!hasCoords) return;
+    const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+    if (!apiKey) {
+      setMapError("Google Maps is not configured for this dashboard.");
+      return;
+    }
+    let cancelled = false;
+    loadGoogleMapsScript(apiKey)
+      .then(() => {
+        if (cancelled || !mapRef.current) return;
+        const googleMaps = (
+          window as unknown as { google: { maps: any } }
+        ).google.maps;
+        const position = { lat: coords[1], lng: coords[0] };
+        const map = new googleMaps.Map(mapRef.current, {
+          center: position,
+          zoom: 13,
+          mapTypeControl: false,
+          streetViewControl: false,
+        });
+        const marker = new googleMaps.Marker({
+          position,
+          map,
+          title: customer.name || "Customer",
+          icon: {
+            path: googleMaps.SymbolPath.CIRCLE,
+            scale: 11,
+            fillColor: "#f6b300",
+            fillOpacity: 1,
+            strokeColor: "#ffffff",
+            strokeWeight: 3,
+          },
+        });
+        const info = new googleMaps.InfoWindow({
+          content: `<strong>${customer.name || "Customer"}</strong>`,
+        });
+        info.open(map, marker);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setMapError("The map could not be loaded. Check your connection and try again.");
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  return (
+    <div className="prov-map-overlay" onClick={onClose}>
+      <div
+        className="prov-map-card"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="prov-map-head">
+          <div>
+            <h3>{customer.name || "Customer"}</h3>
+            <p>{customer.residentialAddress || "Address not provided"}</p>
+          </div>
+          <button
+            className="prov-map-close"
+            type="button"
+            onClick={onClose}
+            aria-label="Close map"
+          >
+            <X size={18} />
+          </button>
+        </div>
+        {hasCoords ? (
+          mapError ? (
+            <div className="prov-map-error">{mapError}</div>
+          ) : (
+            <div ref={mapRef} className="cust-map-canvas" />
+          )
+        ) : (
+          <div className="prov-map-error">
+            No saved location for this customer yet. A location appears here
+            once the customer uses the app with location enabled.
+          </div>
+        )}
+        <div className="prov-map-foot">
+          <span className="prov-map-status">
+            <span
+              className="cust-map-dot"
+              style={{ background: "#f6b300" }}
+            />
+            This customer
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CustomerDetailPanel({
+  customer,
+  displayId,
+  onClose,
+  onAction,
+  onMessage,
+  onEdit,
+  tab,
+  onTabChange,
+}: {
+  customer: CustomerListItem;
+  displayId: string;
+  onClose: () => void;
+  onAction: (kind: CustomerActionKind, customer: CustomerListItem) => void;
+  onMessage: (customer: CustomerListItem) => void;
+  onEdit: (customer: CustomerListItem) => void;
+  tab: string;
+  onTabChange: (tab: string) => void;
+}) {
+  const queryClient = useQueryClient();
+  const [mapOpen, setMapOpen] = useState(false);
+  const [headMenuOpen, setHeadMenuOpen] = useState(false);
+  const [bookingFilter, setBookingFilter] = useState<
+    "all" | "completed" | "upcoming" | "cancelled"
+  >("all");
+  const detailQuery = useQuery({
+    queryKey: ["customer-detail", customer._id],
+    queryFn: () => getAdminCustomerDetail(customer._id),
   });
-  const customers = customersQuery.data || [];
+  const detail = detailQuery.data;
+  const d = detail?.customer;
+
+  const [panelToast, setPanelToast] = useState<{
+    type: "success" | "error" | "info";
+    text: string;
+  } | null>(null);
+  useEffect(() => {
+    if (!panelToast) return;
+    const timer = setTimeout(() => setPanelToast(null), 3600);
+    return () => clearTimeout(timer);
+  }, [panelToast]);
+  const notify = (type: "success" | "error" | "info", text: string) =>
+    setPanelToast({ type, text });
+  const serverError = (error: unknown) =>
+    (error as { response?: { data?: { message?: string } } })?.response?.data
+      ?.message || "Something went wrong. Check your connection and try again.";
+
+  // ─── Notes tab ───
+  const notesQuery = useQuery({
+    queryKey: ["customer-notes", customer._id],
+    queryFn: () => getCustomerNotes(customer._id),
+    enabled: tab === "notes",
+  });
+  const [noteText, setNoteText] = useState("");
+  const [noteBusy, setNoteBusy] = useState(false);
+  const [noteDeleteBusy, setNoteDeleteBusy] = useState(false);
+  const [confirmDeleteNoteId, setConfirmDeleteNoteId] = useState<string | null>(
+    null
+  );
+  const submitNote = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!noteText.trim()) return;
+    setNoteBusy(true);
+    try {
+      await addCustomerNote(customer._id, noteText.trim());
+      setNoteText("");
+      await queryClient.invalidateQueries({
+        queryKey: ["customer-notes", customer._id],
+      });
+      notify("success", "Note added.");
+    } catch (error) {
+      notify("error", serverError(error));
+    } finally {
+      setNoteBusy(false);
+    }
+  };
+  const removeNote = async (noteId: string) => {
+    setNoteDeleteBusy(true);
+    try {
+      await deleteCustomerNote(customer._id, noteId);
+      setConfirmDeleteNoteId(null);
+      await queryClient.invalidateQueries({
+        queryKey: ["customer-notes", customer._id],
+      });
+      notify("success", "Note deleted.");
+    } catch (error) {
+      notify("error", serverError(error));
+    } finally {
+      setNoteDeleteBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const status = customerDisplayStatus(customer);
+  const photoUrl = resolveReportPhotoUrl(customer.photo?.url);
+  const fmtDate = (value?: string) =>
+    value
+      ? new Intl.DateTimeFormat("en-GB", {
+          day: "numeric",
+          month: "short",
+          year: "numeric",
+        }).format(new Date(value))
+      : "—";
+  const fmtDateTime = (value?: string | null) => {
+    if (!value) return "—";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "—";
+    return `${date.toLocaleDateString("en-GB", {
+      day: "numeric",
+      month: "short",
+      year: "numeric",
+    })} • ${date.toLocaleTimeString("en-GB", {
+      hour: "numeric",
+      minute: "2-digit",
+    })}`;
+  };
+  const ratingReceived = detail
+    ? detail.stats.ratingReceived
+    : {
+        average: customer.customerRatingAverage || 0,
+        count: customer.customerRatingCount || 0,
+      };
+  const tabs = [
+    { key: "overview", label: "Overview" },
+    { key: "bookings", label: "Bookings" },
+    { key: "payments", label: "Payments" },
+    { key: "reviews", label: "Reviews" },
+    { key: "notes", label: "Notes" },
+  ];
+  const stars = (rating: number) => (
+    <span className="cust-stars">
+      {[1, 2, 3, 4, 5].map((i) => (
+        <Star
+          key={i}
+          size={13}
+          className={i <= Math.round(rating) ? "cust-star-on" : "cust-star-off"}
+          fill={i <= Math.round(rating) ? "currentColor" : "none"}
+        />
+      ))}
+    </span>
+  );
+  const bookingRow = (booking: AdminCustomerDetailBooking) => (
+    <div
+      key={booking._id}
+      className="prov-bk-row cust-bk-row"
+      onClick={() => {
+        window.location.href = `/bookings/${booking._id}`;
+      }}
+    >
+      {booking.vehicle?.image ? (
+        <img
+          className="cust-bk-photo"
+          alt={booking.vehicle.registrationNo || "Vehicle"}
+          src={resolveReportPhotoUrl(booking.vehicle.image)}
+        />
+      ) : (
+        <span className="prov-bk-avatar">
+          <CarFront size={16} />
+        </span>
+      )}
+      <div className="prov-bk-main">
+        <strong>
+          {booking.ref} • {booking.serviceTitle}
+        </strong>
+        <small>
+          {booking.vehicle?.registrationNo || "No vehicle"}
+          {booking.vehicle?.make
+            ? ` • ${booking.vehicle.make} ${booking.vehicle.model || ""}`
+            : ""}{" "}
+          • with {booking.providerName}
+        </small>
+        <small>{fmtDateTime(booking.bookingDate || booking.createdAt)}</small>
+      </div>
+      <div className="prov-bk-side">
+        <strong>{money(booking.finalPrice ?? booking.price ?? 0)}</strong>
+        <span className={`prov-bk-status prov-bk-${booking.status}`}>
+          {CUSTOMER_BOOKING_LABELS[booking.status] || booking.status}
+        </span>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="prov-panel-overlay" onClick={onClose}>
+      <aside className="prov-panel" onClick={(event) => event.stopPropagation()}>
+        <button className="prov-panel-close" type="button" onClick={onClose} aria-label="Close panel">
+          <X size={18} />
+        </button>
+
+        <div className="prov-panel-head">
+          {photoUrl ? (
+            <span className="prov-panel-avatar person-photo-shell">
+              <span>{initials(customer.name || customer.email, "C")}</span>
+              <img
+                alt={customer.name || "Customer"}
+                src={photoUrl}
+                onError={(event) => {
+                  event.currentTarget.remove();
+                }}
+              />
+            </span>
+          ) : (
+            <span className="prov-panel-avatar">
+              {initials(customer.name || customer.email, "C")}
+            </span>
+          )}
+          <div className="prov-panel-title">
+            <h2>{customer.name || "Customer"}</h2>
+            <div className="prov-panel-meta">
+              <span className={`prov-badge prov-badge-${status}`}>
+                {status === "active"
+                  ? "Active"
+                  : status === "suspended"
+                    ? "Suspended"
+                    : "Inactive"}
+              </span>
+              {customer.enforcement?.status === "suspended" &&
+              customer.enforcement?.reason ? (
+                <span className="prov-offline">{customer.enforcement.reason}</span>
+              ) : null}
+            </div>
+            <p>
+              #{displayId} • Joined {fmtDate(customer.createdAt)}
+            </p>
+            <p className="prov-panel-rating">
+              <Star size={14} />{" "}
+              {ratingReceived.average
+                ? Number(ratingReceived.average).toFixed(1)
+                : "—"}{" "}
+              ({ratingReceived.count} reviews)
+              {detail ? ` • ${detail.stats.totalBookings} bookings` : ""}
+            </p>
+          </div>
+        </div>
+
+        <div className="prov-panel-actions cust-panel-actions">
+          <button
+            className="prov-panel-action"
+            type="button"
+            onClick={() => notify("info", "Calling is coming in the next phase.")}
+          >
+            <Phone size={15} /> Call
+          </button>
+          <button
+            className="prov-panel-action"
+            type="button"
+            onClick={() => onMessage(customer)}
+          >
+            <MessageSquareText size={15} /> Message
+          </button>
+          <button
+            className="prov-panel-action"
+            type="button"
+            onClick={() => onEdit(customer)}
+          >
+            <Pencil size={15} /> Edit
+          </button>
+          <div className="cust-head-menu-wrap">
+            <button
+              className="prov-panel-action"
+              type="button"
+              aria-label="More customer actions"
+              onClick={() => setHeadMenuOpen((open) => !open)}
+            >
+              <MoreHorizontal size={15} />
+            </button>
+            {headMenuOpen ? (
+              <div className="cust-head-menu">
+                <button
+                  className="prov-menu-item"
+                  type="button"
+                  onClick={() => {
+                    setHeadMenuOpen(false);
+                    onAction("reset", customer);
+                  }}
+                >
+                  <RefreshCw size={15} /> Reset Password
+                </button>
+                <button
+                  className="prov-menu-item prov-menu-danger"
+                  type="button"
+                  onClick={() => {
+                    setHeadMenuOpen(false);
+                    onAction("delete", customer);
+                  }}
+                >
+                  <Trash2 size={15} /> Delete Account
+                </button>
+              </div>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="prov-tabs">
+          {tabs.map((item) => (
+            <button
+              key={item.key}
+              className={tab === item.key ? "active" : ""}
+              type="button"
+              onClick={() => onTabChange(item.key)}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="prov-panel-body">
+          {tab === "notes" ? (
+            <>
+              <form className="prov-note-form" onSubmit={submitNote}>
+                <label className="prov-field">
+                  <span>Add a note about this customer</span>
+                  <textarea
+                    className="prov-textarea"
+                    placeholder="e.g. Customer asked for a callback about a refund."
+                    value={noteText}
+                    onChange={(event) => setNoteText(event.target.value)}
+                    maxLength={2000}
+                  />
+                </label>
+                <div className="prov-note-form-foot">
+                  <small>{noteText.length}/2000</small>
+                  <button
+                    className="prov-btn prov-btn-primary"
+                    type="submit"
+                    disabled={noteBusy || !noteText.trim()}
+                  >
+                    {noteBusy ? <Loader2 className="prov-spin" size={14} /> : <Plus size={14} />} Add Note
+                  </button>
+                </div>
+              </form>
+
+              {notesQuery.isLoading ? (
+                <div className="prov-state">
+                  <Loader2 className="prov-spin" size={18} /> Loading notes...
+                </div>
+              ) : notesQuery.isError ? (
+                <div className="prov-error">
+                  <TriangleAlert size={20} />
+                  <div>
+                    <strong>Connection error</strong>
+                    <p>Notes could not be loaded. Check your connection and try again.</p>
+                  </div>
+                  <button className="prov-retry" type="button" onClick={() => notesQuery.refetch()}>
+                    <RefreshCw size={14} /> Retry
+                  </button>
+                </div>
+              ) : (notesQuery.data || []).length === 0 ? (
+                <p className="prov-muted">
+                  No notes yet. Notes are only visible to the admin team — the
+                  customer cannot see them.
+                </p>
+              ) : (
+                <ul className="prov-notes-list">
+                  {(notesQuery.data || []).map((note) => (
+                    <li key={note._id} className="prov-note-card">
+                      <div className="prov-note-head">
+                        <strong>{note.authorName}</strong>
+                        {note.authorRole ? <span className="prov-note-role">{note.authorRole}</span> : null}
+                        <span className="prov-note-time">{relativeDate(note.createdAt)}</span>
+                        {confirmDeleteNoteId === note._id ? (
+                          <span className="prov-note-confirm">
+                            Delete?
+                            <button type="button" className="prov-note-yes" disabled={noteDeleteBusy} onClick={() => removeNote(note._id)}>
+                              Yes
+                            </button>
+                            <button type="button" className="prov-note-no" onClick={() => setConfirmDeleteNoteId(null)}>
+                              No
+                            </button>
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            className="prov-note-del"
+                            aria-label="Delete note"
+                            onClick={() => setConfirmDeleteNoteId(note._id)}
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        )}
+                      </div>
+                      <p>{note.text}</p>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </>
+          ) : detailQuery.isLoading ? (
+            <div className="prov-state">
+              <Loader2 className="prov-spin" size={18} /> Loading customer details...
+            </div>
+          ) : detailQuery.isError || !detail ? (
+            <div className="prov-error">
+              <TriangleAlert size={20} />
+              <div>
+                <strong>Connection error</strong>
+                <p>Customer details could not be loaded. Check your connection and try again.</p>
+              </div>
+              <button className="prov-retry" type="button" onClick={() => detailQuery.refetch()}>
+                <RefreshCw size={14} /> Retry
+              </button>
+            </div>
+          ) : tab === "overview" ? (
+            <>
+              <h3 className="prov-section-title">Contact Information</h3>
+              <div className="cust-info-list">
+                <div className="cust-info-row">
+                  <span>
+                    <Mail size={14} /> Email
+                  </span>
+                  <strong>{d?.email || customer.email || "Not provided"}</strong>
+                </div>
+                <div className="cust-info-row">
+                  <span>
+                    <Phone size={14} /> Phone
+                  </span>
+                  <strong>{d?.phoneNumber || customer.phoneNumber || "Not provided"}</strong>
+                </div>
+                <div className="cust-info-row">
+                  <span>
+                    <MapPin size={14} /> Address
+                  </span>
+                  <strong>
+                    {d?.residentialAddress || customer.residentialAddress || "Not provided"}
+                  </strong>
+                </div>
+              </div>
+              <button
+                className="prov-btn prov-btn-dark cust-map-btn"
+                type="button"
+                onClick={() => setMapOpen(true)}
+              >
+                <MapPin size={14} /> View on Map
+              </button>
+
+              <div className="prov-mini-cards cust-mini-3">
+                <article>
+                  <strong>{detail.stats.totalBookings}</strong>
+                  <span>Total Bookings</span>
+                </article>
+                <article>
+                  <strong>{money(detail.stats.totalSpent)}</strong>
+                  <span>Total Spent</span>
+                </article>
+                <article>
+                  <strong>
+                    {detail.stats.ratingReceived.average
+                      ? detail.stats.ratingReceived.average.toFixed(1)
+                      : "—"}
+                  </strong>
+                  <span>Avg Rating ({detail.stats.ratingReceived.count})</span>
+                </article>
+              </div>
+
+              <div className="cust-section-head">
+                <h3 className="prov-section-title">Recent Bookings</h3>
+                {detail.bookings.length > 0 ? (
+                  <button type="button" onClick={() => onTabChange("bookings")}>
+                    View All
+                  </button>
+                ) : null}
+              </div>
+              {detail.bookings.length === 0 ? (
+                <p className="prov-muted">No bookings yet.</p>
+              ) : (
+                <div className="prov-bk-list">
+                  {detail.bookings.slice(0, 5).map(bookingRow)}
+                </div>
+              )}
+
+              <h3 className="prov-section-title">Customer Vehicles</h3>
+              {detail.vehicles.length === 0 ? (
+                <p className="prov-muted">No vehicles saved yet.</p>
+              ) : (
+                <div className="cust-vehicle-list">
+                  {detail.vehicles.map((vehicle) => (
+                    <div key={vehicle._id} className="cust-vehicle-card">
+                      {vehicle.image ? (
+                        <img
+                          className="cust-bk-photo"
+                          alt={vehicle.registrationNo || "Vehicle"}
+                          src={resolveReportPhotoUrl(vehicle.image)}
+                        />
+                      ) : (
+                        <span className="prov-bk-avatar">
+                          <CarFront size={16} />
+                        </span>
+                      )}
+                      <div className="prov-bk-main">
+                        <strong>
+                          {vehicle.registrationNo || "No plate"}
+                          {vehicle.isDefault ? " • Default" : ""}
+                        </strong>
+                        <small>
+                          {[vehicle.make, vehicle.model, vehicle.year, vehicle.size, vehicle.colour]
+                            .filter(Boolean)
+                            .join(" • ") || "Details not provided"}
+                        </small>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <h3 className="prov-section-title">Payment Methods</h3>
+              <p className="prov-muted">
+                No saved cards on file. This customer pays per booking in the
+                app — card details are handled securely by Stripe and are
+                never stored in the admin panel. See the Payments tab for
+                their payment history.
+              </p>
+            </>
+          ) : tab === "bookings" ? (
+            <>
+              <div className="prov-bk-counts">
+                <button
+                  type="button"
+                  className={bookingFilter === "all" ? "active" : ""}
+                  onClick={() => setBookingFilter("all")}
+                >
+                  All ({detail.bookings.length})
+                </button>
+                <button
+                  type="button"
+                  className={bookingFilter === "completed" ? "active" : ""}
+                  onClick={() => setBookingFilter("completed")}
+                >
+                  Completed ({detail.stats.counts.completed})
+                </button>
+                <button
+                  type="button"
+                  className={bookingFilter === "upcoming" ? "active" : ""}
+                  onClick={() => setBookingFilter("upcoming")}
+                >
+                  Upcoming ({detail.stats.counts.active})
+                </button>
+                <button
+                  type="button"
+                  className={bookingFilter === "cancelled" ? "active" : ""}
+                  onClick={() => setBookingFilter("cancelled")}
+                >
+                  Cancelled ({detail.stats.counts.cancelled})
+                </button>
+              </div>
+              {(() => {
+                const rows = detail.bookings.filter((booking) => {
+                  if (bookingFilter === "all") return true;
+                  if (bookingFilter === "completed")
+                    return booking.status === "completed";
+                  if (bookingFilter === "cancelled")
+                    return booking.status === "cancelled";
+                  return ["pending", "accepted", "arrived", "ongoing"].includes(
+                    booking.status
+                  );
+                });
+                return rows.length === 0 ? (
+                  <p className="prov-muted">No bookings in this group yet.</p>
+                ) : (
+                  <div className="prov-bk-list">{rows.map(bookingRow)}</div>
+                );
+              })()}
+            </>
+          ) : tab === "payments" ? (
+            <>
+              <div className="prov-mini-cards cust-mini-3">
+                <article>
+                  <strong>{money(detail.stats.totalSpent)}</strong>
+                  <span>Total Spent</span>
+                </article>
+                <article>
+                  <strong>{money(detail.stats.tipsGiven)}</strong>
+                  <span>Tips Given</span>
+                </article>
+                <article>
+                  <strong>{detail.payments.length}</strong>
+                  <span>Payments</span>
+                </article>
+              </div>
+              {detail.payments.length === 0 ? (
+                <p className="prov-muted">No payments recorded yet.</p>
+              ) : (
+                <div className="prov-payout-list">
+                  {detail.payments.map((payment) => (
+                    <div key={payment._id} className="prov-payout-row cust-pay-row">
+                      <div className="prov-payout-main">
+                        <strong>
+                          {payment.ref}
+                          {payment.type === "tips" ? " • Tip" : ""}
+                        </strong>
+                        <small>
+                          {payment.method || "Card"} • {fmtDateTime(payment.createdAt)}
+                        </small>
+                      </div>
+                      <div className="prov-bk-side">
+                        <strong>{money(payment.amount)}</strong>
+                        <span
+                          className={`prov-payout-status ${
+                            payment.status === "complete"
+                              ? "prov-payout-paid"
+                              : payment.status === "failed"
+                                ? "prov-payout-failed"
+                                : "prov-payout-pending"
+                          }`}
+                        >
+                          {payment.status === "complete"
+                            ? "Paid"
+                            : payment.status === "failed"
+                              ? "Failed"
+                              : "Pending"}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          ) : (
+            <>
+              <h3 className="prov-section-title">
+                Reviews from Providers ({detail.stats.ratingReceived.count}
+                {detail.stats.ratingReceived.average
+                  ? ` • avg ${detail.stats.ratingReceived.average.toFixed(1)}`
+                  : ""}
+                )
+              </h3>
+              {detail.reviewsReceived.length === 0 ? (
+                <p className="prov-muted">No provider has reviewed this customer yet.</p>
+              ) : (
+                <div className="cust-review-list">
+                  {detail.reviewsReceived.map((review) => (
+                    <div key={review._id} className="cust-review-card">
+                      <div className="cust-review-head">
+                        <strong>{review.providerName}</strong>
+                        {stars(review.rating)}
+                        <span className="prov-note-time">
+                          {review.createdAt ? relativeDate(review.createdAt) : ""}
+                        </span>
+                      </div>
+                      {review.review ? <p>{review.review}</p> : null}
+                      {review.bookingRef ? (
+                        <small className="prov-muted">Booking {review.bookingRef}</small>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <h3 className="prov-section-title">
+                Reviews Given to Providers ({detail.stats.ratingGiven.count}
+                {detail.stats.ratingGiven.average
+                  ? ` • avg ${detail.stats.ratingGiven.average.toFixed(1)}`
+                  : ""}
+                )
+              </h3>
+              {detail.reviewsGiven.length === 0 ? (
+                <p className="prov-muted">This customer has not reviewed any provider yet.</p>
+              ) : (
+                <div className="cust-review-list">
+                  {detail.reviewsGiven.map((review) => (
+                    <div key={review._id} className="cust-review-card">
+                      <div className="cust-review-head">
+                        <strong>{review.providerName}</strong>
+                        {stars(review.rating)}
+                        <span className="prov-note-time">
+                          {review.createdAt ? relativeDate(review.createdAt) : ""}
+                        </span>
+                      </div>
+                      {review.review ? <p>{review.review}</p> : null}
+                      <small className="prov-muted">
+                        {[review.serviceTitle, review.bookingRef ? `Booking ${review.bookingRef}` : ""]
+                          .filter(Boolean)
+                          .join(" • ")}
+                      </small>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+
+        <div className="prov-panel-footer">
+          <button
+            className="prov-btn prov-btn-primary"
+            type="button"
+            onClick={() => onMessage(customer)}
+          >
+            <MessageSquareText size={14} /> Send Message
+          </button>
+          <button
+            className="prov-btn prov-btn-ghost"
+            type="button"
+            onClick={() => onTabChange("notes")}
+          >
+            <FileText size={14} /> Add Note
+          </button>
+          {status === "suspended" ? (
+            <button
+              className="prov-btn prov-btn-primary"
+              type="button"
+              onClick={() => onAction("reactivate", customer)}
+            >
+              <UserCheck size={14} /> Reactivate
+            </button>
+          ) : (
+            <button
+              className="prov-btn prov-btn-outline-danger"
+              type="button"
+              onClick={() => onAction("suspend", customer)}
+            >
+              <Ban size={14} /> Suspend
+            </button>
+          )}
+          {customer.accountStatus === "disabled" ? (
+            <button
+              className="prov-btn prov-btn-dark"
+              type="button"
+              onClick={() => onAction("activate", customer)}
+            >
+              <Power size={14} /> Activate
+            </button>
+          ) : (
+            <button
+              className="prov-btn prov-btn-danger"
+              type="button"
+              onClick={() => onAction("deactivate", customer)}
+            >
+              <Power size={14} /> Deactivate
+            </button>
+          )}
+        </div>
+
+        {panelToast ? (
+          <div className={`prov-toast prov-toast-${panelToast.type}`}>
+            {panelToast.type === "success" ? (
+              <UserCheck size={16} />
+            ) : panelToast.type === "error" ? (
+              <TriangleAlert size={16} />
+            ) : (
+              <Clock size={16} />
+            )}
+            {panelToast.text}
+          </div>
+        ) : null}
+      </aside>
+      {mapOpen ? (
+        <CustomerMapModal customer={customer} onClose={() => setMapOpen(false)} />
+      ) : null}
+    </div>
+  );
+}
+
+export function CustomersPageContent() {
+  const queryClient = useQueryClient();
+  const user = useDashboardUser();
+  // Directory page: Topbar date range is list ko narrow NAHI karta (Providers
+  // wala hi pattern) — poori list "all" se ati hai, stats asal counts hain.
+  const customersQuery = useQuery({
+    queryKey: ["customers", "all"],
+    queryFn: () => getCustomers({ range: "all" }),
+    refetchInterval: 30000,
+  });
+  const customers = (customersQuery.data || []) as CustomerListItem[];
+
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | CustomerDisplayStatus>("all");
+  const [locationFilter, setLocationFilter] = useState("all");
+  const [joinedFilter, setJoinedFilter] = useState("all");
+  const [selected, setSelected] = useState<string[]>([]);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(10);
+  const [panelId, setPanelId] = useState<string | null>(null);
+  const [addOpen, setAddOpen] = useState(false);
+  const [panelTab, setPanelTab] = useState("overview");
+  const [editCustomer, setEditCustomer] = useState<CustomerListItem | null>(null);
+  const openPanel = (customer: CustomerListItem, tab: string = "overview") => {
+    setPanelTab(tab);
+    setPanelId(customer._id);
+  };
+  const [messageCustomer, setMessageCustomer] = useState<CustomerListItem | null>(null);
+
+  const [menuFor, setMenuFor] = useState<string | null>(null);
+  const [menuPos, setMenuPos] = useState<{ top: number; left: number } | null>(null);
+  const [action, setAction] = useState<{
+    kind: CustomerActionKind;
+    customer: CustomerListItem;
+  } | null>(null);
+  const [reason, setReason] = useState("");
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
+  const [actionError, setActionError] = useState("");
+  const [actionBusy, setActionBusy] = useState(false);
+  const [toast, setToast] = useState<{
+    type: "success" | "error";
+    text: string;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!menuFor) return;
+    const close = () => setMenuFor(null);
+    document.addEventListener("click", close);
+    window.addEventListener("resize", close);
+    window.addEventListener("scroll", close, true);
+    return () => {
+      document.removeEventListener("click", close);
+      window.removeEventListener("resize", close);
+      window.removeEventListener("scroll", close, true);
+    };
+  }, [menuFor]);
+
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(null), 4200);
+    return () => clearTimeout(timer);
+  }, [toast]);
+
+  const openMenu = (event: ReactMouseEvent<HTMLButtonElement>, id: string) => {
+    event.stopPropagation();
+    if (menuFor === id) {
+      setMenuFor(null);
+      return;
+    }
+    const rect = event.currentTarget.getBoundingClientRect();
+    const menuHeight = 452;
+    const menuWidth = 228;
+    const openUp = rect.bottom + menuHeight + 8 > window.innerHeight;
+    setMenuPos({
+      top: openUp ? Math.max(8, rect.top - menuHeight - 6) : rect.bottom + 6,
+      left: Math.max(8, rect.right - menuWidth),
+    });
+    setMenuFor(id);
+  };
+
+  const menuCustomer = menuFor
+    ? customers.find((customer) => customer._id === menuFor)
+    : undefined;
+  const panelCustomer = panelId
+    ? customers.find((customer) => customer._id === panelId)
+    : undefined;
+
+  const openAction = (kind: CustomerActionKind, customer: CustomerListItem) => {
+    setMenuFor(null);
+    setReason("");
+    setDeleteConfirmText("");
+    setActionError("");
+    setAction({ kind, customer });
+  };
+
+  const runAction = async () => {
+    if (!action) return;
+    const { kind, customer } = action;
+    if (kind === "suspend" && !reason.trim()) {
+      setActionError("Reason is required to suspend a customer.");
+      return;
+    }
+    if (
+      kind === "delete" &&
+      deleteConfirmText.trim() !== (customer.name || customer.email || "")
+    ) {
+      setActionError("Type the customer's name exactly to confirm deletion.");
+      return;
+    }
+    setActionBusy(true);
+    setActionError("");
+    try {
+      if (kind === "suspend") {
+        await updateCustomerEnforcement(customer._id, {
+          status: "suspended",
+          reason: reason.trim(),
+        });
+      } else if (kind === "reactivate") {
+        await updateCustomerEnforcement(customer._id, { status: "clear" });
+      } else if (kind === "deactivate") {
+        await updateUserAccountStatus(customer._id, "disabled");
+      } else if (kind === "activate") {
+        await updateUserAccountStatus(customer._id, "active");
+      } else if (kind === "delete") {
+        await deleteAdminCustomer(customer._id);
+        setSelected((current) => current.filter((item) => item !== customer._id));
+        if (panelId === customer._id) setPanelId(null);
+      } else if (kind === "reset") {
+        await sendCustomerResetPassword(customer._id);
+      }
+      const messages: Record<CustomerActionKind, string> = {
+        suspend: "Customer suspended.",
+        reactivate: "Customer reactivated.",
+        deactivate: "Customer account deactivated.",
+        activate: "Customer account activated.",
+        delete: "Customer deleted.",
+        reset: "Password reset email sent to the customer.",
+      };
+      setAction(null);
+      setReason("");
+      setDeleteConfirmText("");
+      await queryClient.invalidateQueries({ queryKey: ["customers"] });
+      await queryClient.invalidateQueries({
+        queryKey: ["customer-detail", customer._id],
+      });
+      setToast({ type: "success", text: messages[kind] });
+    } catch (error) {
+      const message =
+        (error as { response?: { data?: { message?: string } } })?.response
+          ?.data?.message ||
+        "Something went wrong. Check your connection and try again.";
+      setActionError(message);
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    const socket = io(SOCKET_URL, getDashboardSocketOptions(user?._id));
+    const refreshCustomers = () =>
+      queryClient.invalidateQueries({ queryKey: ["customers"] });
+    socket.on("admin_booking_created", refreshCustomers);
+    socket.on("admin_booking_status_updated", refreshCustomers);
+    return () => {
+      socket.off("admin_booking_created", refreshCustomers);
+      socket.off("admin_booking_status_updated", refreshCustomers);
+      socket.disconnect();
+    };
+  }, [queryClient, user?._id]);
+
+  // Display ID (#C001) — join order (oldest first) se stable number.
+  const idNumbers = useMemo(() => {
+    const sorted = [...customers].sort(
+      (a, b) =>
+        new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime()
+    );
+    const map = new Map<string, string>();
+    sorted.forEach((customer, index) => {
+      map.set(customer._id, `C${String(index + 1).padStart(3, "0")}`);
+    });
+    return map;
+  }, [customers]);
+
+  const locations = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          customers
+            .map((customer) => customer.residentialAddress?.trim())
+            .filter(Boolean) as string[]
+        )
+      ).sort(),
+    [customers]
+  );
+
+  const counts = useMemo(() => {
+    const result = { total: customers.length, active: 0, inactive: 0, joinedThisMonth: 0 };
+    const now = new Date();
+    customers.forEach((customer) => {
+      const status = customerDisplayStatus(customer);
+      if (status === "active") result.active += 1;
+      if (status === "inactive") result.inactive += 1;
+      const joined = customer.createdAt ? new Date(customer.createdAt) : null;
+      if (
+        joined &&
+        joined.getMonth() === now.getMonth() &&
+        joined.getFullYear() === now.getFullYear()
+      ) {
+        result.joinedThisMonth += 1;
+      }
+    });
+    return result;
+  }, [customers]);
+
+  const filtered = useMemo(() => {
+    const term = search.trim().toLowerCase();
+    const now = new Date();
+    return customers.filter((customer) => {
+      if (statusFilter !== "all" && customerDisplayStatus(customer) !== statusFilter)
+        return false;
+      if (locationFilter !== "all" && (customer.residentialAddress || "") !== locationFilter)
+        return false;
+      if (joinedFilter !== "all" && customer.createdAt) {
+        const joined = new Date(customer.createdAt);
+        const monthsBack =
+          (now.getFullYear() - joined.getFullYear()) * 12 +
+          (now.getMonth() - joined.getMonth());
+        if (joinedFilter === "month" && monthsBack > 0) return false;
+        if (joinedFilter === "quarter" && monthsBack > 2) return false;
+        if (joinedFilter === "year" && monthsBack > 11) return false;
+      }
+      if (term) {
+        const displayId = idNumbers.get(customer._id) || "";
+        const haystack = [
+          customer.name || "",
+          customer.email || "",
+          customer.phoneNumber || "",
+          `#${displayId}`,
+          displayId,
+        ]
+          .join(" ")
+          .toLowerCase();
+        if (!haystack.includes(term)) return false;
+      }
+      return true;
+    });
+  }, [customers, search, statusFilter, locationFilter, joinedFilter, idNumbers]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const pageItems = filtered.slice((safePage - 1) * pageSize, safePage * pageSize);
+  const pageIds = pageItems.map((customer) => customer._id);
+  const allPageSelected =
+    pageIds.length > 0 && pageIds.every((id) => selected.includes(id));
+
+  const pageButtons = useMemo(() => {
+    const buttons: Array<number | "gap"> = [];
+    for (let i = 1; i <= totalPages; i += 1) {
+      if (i === 1 || i === totalPages || Math.abs(i - safePage) <= 1) {
+        buttons.push(i);
+      } else if (buttons[buttons.length - 1] !== "gap") {
+        buttons.push("gap");
+      }
+    }
+    return buttons;
+  }, [totalPages, safePage]);
+
+  const resetFilters = () => {
+    setSearch("");
+    setStatusFilter("all");
+    setLocationFilter("all");
+    setJoinedFilter("all");
+    setPage(1);
+  };
+
+  const toggleSelected = (id: string) =>
+    setSelected((current) =>
+      current.includes(id)
+        ? current.filter((item) => item !== id)
+        : [...current, id]
+    );
+
+  const togglePageSelected = () =>
+    setSelected((current) =>
+      allPageSelected
+        ? current.filter((id) => !pageIds.includes(id))
+        : Array.from(new Set([...current, ...pageIds]))
+    );
+
+  const pctOfTotal = (value: number) =>
+    counts.total > 0 ? `${Math.round((value / counts.total) * 100)}% of total` : "—";
+
+  const joinedLabel = (value?: string) =>
+    value
+      ? new Intl.DateTimeFormat("en-GB", {
+          day: "numeric",
+          month: "short",
+          year: "numeric",
+        }).format(new Date(value))
+      : "—";
 
   return (
     <section className="data-page">
-      <div className="data-page-header">
+      <div className="data-page-header prov-header">
         <div>
           <h1>Customers</h1>
-          <p>Customer accounts connected to booking and report activity.</p>
+          <p>Manage customer accounts, view booking history and provide support.</p>
         </div>
+        <button
+          className="primary-button prov-add-button"
+          type="button"
+          onClick={() => setAddOpen(true)}
+        >
+          <Plus size={16} /> Add Customer
+        </button>
       </div>
-      <TableShell>
-        <table className="admin-table">
+
+      <div className="prov-stats">
+        <article className="prov-stat-card">
+          <span className="prov-stat-icon prov-icon-blue">
+            <Users size={20} />
+          </span>
+          <div>
+            <strong>{counts.total}</strong>
+            <span>Total Customers</span>
+            <small>
+              {counts.joinedThisMonth > 0
+                ? `+${counts.joinedThisMonth} joined this month`
+                : "Registered customers"}
+            </small>
+          </div>
+        </article>
+        <article className="prov-stat-card">
+          <span className="prov-stat-icon prov-icon-green">
+            <UserCheck size={20} />
+          </span>
+          <div>
+            <strong>{counts.active}</strong>
+            <span>Active Customers</span>
+            <small>{pctOfTotal(counts.active)}</small>
+          </div>
+        </article>
+        <article className="prov-stat-card">
+          <span className="prov-stat-icon prov-icon-amber">
+            <CalendarDays size={20} />
+          </span>
+          <div>
+            <strong>{counts.joinedThisMonth}</strong>
+            <span>New Customers</span>
+            <small>This month</small>
+          </div>
+        </article>
+        <article className="prov-stat-card">
+          <span className="prov-stat-icon prov-icon-red">
+            <UserRound size={20} />
+          </span>
+          <div>
+            <strong>{counts.inactive}</strong>
+            <span>Inactive Customers</span>
+            <small>{pctOfTotal(counts.inactive)}</small>
+          </div>
+        </article>
+      </div>
+
+      <div className="prov-filters">
+        <label className="prov-search">
+          <Search size={16} />
+          <input
+            placeholder="Search by name, email, phone or ID..."
+            value={search}
+            onChange={(event) => {
+              setSearch(event.target.value);
+              setPage(1);
+            }}
+          />
+        </label>
+        <select
+          className="prov-select prov-w-status"
+          value={statusFilter}
+          onChange={(event) => {
+            setStatusFilter(event.target.value as "all" | CustomerDisplayStatus);
+            setPage(1);
+          }}
+        >
+          <option value="all">All Statuses</option>
+          <option value="active">Active</option>
+          <option value="suspended">Suspended</option>
+          <option value="inactive">Inactive</option>
+        </select>
+        <select
+          className="prov-select cust-w-location"
+          value={locationFilter}
+          onChange={(event) => {
+            setLocationFilter(event.target.value);
+            setPage(1);
+          }}
+        >
+          <option value="all">All Locations</option>
+          {locations.map((location) => (
+            <option key={location} value={location}>
+              {location}
+            </option>
+          ))}
+        </select>
+        <select
+          className="prov-select cust-w-joined"
+          value={joinedFilter}
+          onChange={(event) => {
+            setJoinedFilter(event.target.value);
+            setPage(1);
+          }}
+        >
+          <option value="all">Join Date: All</option>
+          <option value="month">Joined this month</option>
+          <option value="quarter">Last 3 months</option>
+          <option value="year">Last 12 months</option>
+        </select>
+        <button className="prov-filter-button" type="button" onClick={resetFilters}>
+          <RotateCcw size={15} /> Reset
+        </button>
+      </div>
+
+      <div className="prov-table-card">
+        {selected.length > 0 ? (
+          <div className="prov-selected-bar">
+            {selected.length} customer{selected.length === 1 ? "" : "s"} selected
+          </div>
+        ) : null}
+        <table className="prov-table">
           <thead>
             <tr>
+              <th className="prov-check-cell">
+                <input
+                  type="checkbox"
+                  checked={allPageSelected}
+                  onChange={togglePageSelected}
+                />
+              </th>
+              <th>ID</th>
               <th>Customer</th>
               <th>Phone</th>
-              <th>Reviews</th>
+              <th>Total Bookings</th>
+              <th>Total Spent</th>
               <th>Status</th>
-              <th>Created</th>
+              <th>Joined</th>
+              <th className="prov-actions-head">Actions</th>
             </tr>
           </thead>
           <tbody>
-            {customers.map((customer) => (
-              <tr key={customer._id}>
-                <td>
-                  <AvatarName user={customer} fallback="Customer" />
-                </td>
-                <td>{customer.phoneNumber || "No phone"}</td>
-                <td>
-                  <CustomerReviewsSummary customer={customer} />
-                </td>
-                <td>
-                  <span className={`table-status ${customer.accountStatus || "active"}`}>
-                    {customer.accountStatus || "active"}
-                  </span>
-                </td>
-                <td>{relativeDate(customer.createdAt)}</td>
-              </tr>
-            ))}
+            {pageItems.map((customer) => {
+              const status = customerDisplayStatus(customer);
+              const photoUrl = resolveReportPhotoUrl(customer.photo?.url);
+              return (
+                <tr
+                  key={customer._id}
+                  className={`clickable-row${
+                    selected.includes(customer._id) ? " prov-row-selected" : ""
+                  }`}
+                  onClick={() => openPanel(customer)}
+                >
+                  <td
+                    className="prov-check-cell"
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selected.includes(customer._id)}
+                      onChange={() => toggleSelected(customer._id)}
+                    />
+                  </td>
+                  <td className="prov-id">#{idNumbers.get(customer._id)}</td>
+                  <td>
+                    <div className="inline-person">
+                      {photoUrl ? (
+                        <span className="small-avatar person-photo-shell">
+                          <span>{initials(customer.name || customer.email, "C")}</span>
+                          <img
+                            alt={customer.name || "Customer"}
+                            src={photoUrl}
+                            onError={(event) => {
+                              event.currentTarget.remove();
+                            }}
+                          />
+                        </span>
+                      ) : (
+                        <span className="small-avatar">
+                          {initials(customer.name || customer.email, "C")}
+                        </span>
+                      )}
+                      <span>
+                        <strong>{customer.name || "Customer"}</strong>
+                        <small>{customer.email || "No email"}</small>
+                      </span>
+                    </div>
+                  </td>
+                  <td>{customer.phoneNumber || "No phone"}</td>
+                  <td>{customer.totalBookings ?? 0}</td>
+                  <td>{money(customer.totalSpent ?? 0)}</td>
+                  <td>
+                    <span className={`prov-badge prov-badge-${status}`}>
+                      {status === "active"
+                        ? "Active"
+                        : status === "suspended"
+                          ? "Suspended"
+                          : "Inactive"}
+                    </span>
+                  </td>
+                  <td>{joinedLabel(customer.createdAt)}</td>
+                  <td
+                    className="prov-actions-cell"
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    <button
+                      className="prov-menu-button"
+                      type="button"
+                      aria-label="Customer actions"
+                      onClick={(event) => openMenu(event, customer._id)}
+                    >
+                      <MoreHorizontal size={18} />
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
-        {customersQuery.isLoading ? <EmptyState text="Loading customers..." /> : null}
-      </TableShell>
+
+        {customersQuery.isLoading ? (
+          <div className="prov-state">
+            <Loader2 className="prov-spin" size={18} /> Loading customers...
+          </div>
+        ) : null}
+
+        {customersQuery.isError ? (
+          <div className="prov-error">
+            <TriangleAlert size={20} />
+            <div>
+              <strong>Connection error</strong>
+              <p>Customers could not be loaded. Check your internet connection and try again.</p>
+            </div>
+            <button
+              className="prov-retry"
+              type="button"
+              onClick={() => customersQuery.refetch()}
+            >
+              <RefreshCw size={14} /> Retry
+            </button>
+          </div>
+        ) : null}
+
+        {!customersQuery.isLoading && !customersQuery.isError && customers.length === 0 ? (
+          <EmptyState text="No customers yet. New customers will appear here after they sign up." />
+        ) : null}
+
+        {!customersQuery.isLoading &&
+        !customersQuery.isError &&
+        customers.length > 0 &&
+        filtered.length === 0 ? (
+          <div className="prov-state">
+            <p>No customers match your filters.</p>
+            <button className="prov-retry" type="button" onClick={resetFilters}>
+              <RotateCcw size={14} /> Reset filters
+            </button>
+          </div>
+        ) : null}
+
+        {filtered.length > 0 ? (
+          <div className="prov-pagination">
+            <span>
+              Showing {(safePage - 1) * pageSize + 1} to{" "}
+              {Math.min(safePage * pageSize, filtered.length)} of {filtered.length}{" "}
+              customers
+            </span>
+            <div className="prov-pages">
+              <button
+                disabled={safePage <= 1}
+                onClick={() => setPage(safePage - 1)}
+                type="button"
+              >
+                <ChevronLeft size={14} />
+              </button>
+              {pageButtons.map((button, index) =>
+                button === "gap" ? (
+                  <span key={`gap-${index}`} className="prov-page-gap">
+                    …
+                  </span>
+                ) : (
+                  <button
+                    key={button}
+                    className={button === safePage ? "active" : ""}
+                    onClick={() => setPage(button)}
+                    type="button"
+                  >
+                    {button}
+                  </button>
+                )
+              )}
+              <button
+                disabled={safePage >= totalPages}
+                onClick={() => setPage(safePage + 1)}
+                type="button"
+              >
+                <ChevronRight size={14} />
+              </button>
+            </div>
+            <select
+              className="prov-select prov-page-size"
+              value={pageSize}
+              onChange={(event) => {
+                setPageSize(Number(event.target.value));
+                setPage(1);
+              }}
+            >
+              <option value={10}>10 / page</option>
+              <option value={25}>25 / page</option>
+              <option value={50}>50 / page</option>
+            </select>
+          </div>
+        ) : null}
+      </div>
+
+      {menuCustomer && menuPos ? (
+        <div
+          className="prov-menu"
+          style={{ top: menuPos.top, left: menuPos.left }}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <button
+            className="prov-menu-item"
+            type="button"
+            onClick={() => {
+              setMenuFor(null);
+              openPanel(menuCustomer);
+            }}
+          >
+            <Eye size={15} /> View Details
+          </button>
+          <button
+            className="prov-menu-item"
+            type="button"
+            onClick={() => {
+              setMenuFor(null);
+              setEditCustomer(menuCustomer);
+            }}
+          >
+            <Pencil size={15} /> Edit Customer
+          </button>
+          <button
+            className="prov-menu-item"
+            type="button"
+            onClick={() => {
+              setMenuFor(null);
+              setMessageCustomer(menuCustomer);
+            }}
+          >
+            <MessageSquareText size={15} /> Send Message
+          </button>
+          <button
+            className="prov-menu-item"
+            type="button"
+            onClick={() => {
+              setMenuFor(null);
+              openPanel(menuCustomer, "bookings");
+            }}
+          >
+            <CalendarDays size={15} /> View Bookings
+          </button>
+          <button
+            className="prov-menu-item"
+            type="button"
+            onClick={() => {
+              setMenuFor(null);
+              openPanel(menuCustomer, "payments");
+            }}
+          >
+            <CreditCard size={15} /> View Payments
+          </button>
+          <button
+            className="prov-menu-item"
+            type="button"
+            onClick={() => {
+              setMenuFor(null);
+              openPanel(menuCustomer, "notes");
+            }}
+          >
+            <FileText size={15} /> Add Note
+          </button>
+          <button
+            className="prov-menu-item"
+            type="button"
+            onClick={() => openAction("reset", menuCustomer)}
+          >
+            <RefreshCw size={15} /> Reset Password
+          </button>
+          <div className="prov-menu-divider" />
+          {menuCustomer.enforcement?.status === "suspended" ||
+          menuCustomer.enforcement?.status === "banned" ? (
+            <button
+              className="prov-menu-item"
+              type="button"
+              onClick={() => openAction("reactivate", menuCustomer)}
+            >
+              <UserCheck size={15} /> Reactivate Account
+            </button>
+          ) : (
+            <button
+              className="prov-menu-item"
+              type="button"
+              onClick={() => openAction("suspend", menuCustomer)}
+            >
+              <Ban size={15} /> Suspend Account
+            </button>
+          )}
+          {menuCustomer.accountStatus === "disabled" ? (
+            <button
+              className="prov-menu-item"
+              type="button"
+              onClick={() => openAction("activate", menuCustomer)}
+            >
+              <Power size={15} /> Activate Account
+            </button>
+          ) : (
+            <button
+              className="prov-menu-item"
+              type="button"
+              onClick={() => openAction("deactivate", menuCustomer)}
+            >
+              <Power size={15} /> Deactivate Account
+            </button>
+          )}
+          <button
+            className="prov-menu-item prov-menu-danger"
+            type="button"
+            onClick={() => openAction("delete", menuCustomer)}
+          >
+            <Trash2 size={15} /> Delete Account
+          </button>
+        </div>
+      ) : null}
+
+      {action ? (
+        <div
+          className="prov-modal-overlay"
+          onClick={() => {
+            if (!actionBusy) setAction(null);
+          }}
+        >
+          <div
+            className="prov-modal"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <h3>
+              {action.kind === "suspend"
+                ? "Suspend Account"
+                : action.kind === "reactivate"
+                  ? "Reactivate Account"
+                  : action.kind === "deactivate"
+                    ? "Deactivate Account"
+                    : action.kind === "activate"
+                      ? "Activate Account"
+                      : action.kind === "reset"
+                        ? "Reset Password"
+                        : "Delete Account"}
+            </h3>
+            <p>
+              {action.kind === "suspend" ? (
+                <>
+                  Suspend <strong>{action.customer.name || "this customer"}</strong>?
+                  They will not be able to log in or make new bookings until
+                  reactivated. Existing bookings are not affected.
+                </>
+              ) : action.kind === "reactivate" ? (
+                <>
+                  Reactivate <strong>{action.customer.name || "this customer"}</strong>?
+                  The suspension will be lifted and they can log in and book
+                  again.
+                </>
+              ) : action.kind === "deactivate" ? (
+                <>
+                  Deactivate <strong>{action.customer.name || "this customer"}</strong>?
+                  They will not be able to log in. Their data stays safe and
+                  the account can be activated again at any time.
+                </>
+              ) : action.kind === "activate" ? (
+                <>
+                  Activate <strong>{action.customer.name || "this customer"}</strong>?
+                  They will be able to log in and use the app again.
+                </>
+              ) : action.kind === "reset" ? (
+                <>
+                  Send a password reset email to{" "}
+                  <strong>{action.customer.email || "this customer"}</strong>?
+                  They will receive a one-time code to set a new password.
+                </>
+              ) : (
+                <>
+                  Delete <strong>{action.customer.name || "this customer"}</strong>?
+                  They will be removed from the customers list and will no
+                  longer be able to use the app.
+                </>
+              )}
+            </p>
+
+            {action.kind === "delete" ? (
+              <>
+                <div className="prov-modal-warn">
+                  Booking and payment records are kept safe — only the
+                  customer account is removed from view. If this customer has
+                  an active booking in progress, deletion will be stopped.
+                  This cannot be undone from the panel.
+                </div>
+                <label className="prov-field">
+                  <span>
+                    Type the customer&apos;s name (
+                    {action.customer.name || action.customer.email}) to confirm
+                  </span>
+                  <input
+                    className="prov-input"
+                    value={deleteConfirmText}
+                    onChange={(event) => setDeleteConfirmText(event.target.value)}
+                    placeholder={action.customer.name || action.customer.email || ""}
+                  />
+                </label>
+              </>
+            ) : null}
+
+            {action.kind === "suspend" ? (
+              <label className="prov-field">
+                <span>Reason (required)</span>
+                <textarea
+                  className="prov-textarea"
+                  placeholder="e.g. Abusive behaviour reported by providers"
+                  value={reason}
+                  onChange={(event) => setReason(event.target.value)}
+                />
+              </label>
+            ) : null}
+
+            {actionError ? (
+              <div className="prov-modal-error">{actionError}</div>
+            ) : null}
+
+            <div className="prov-modal-actions">
+              <button
+                className="prov-btn prov-btn-ghost"
+                type="button"
+                disabled={actionBusy}
+                onClick={() => setAction(null)}
+              >
+                Cancel
+              </button>
+              <button
+                className={`prov-btn ${
+                  action.kind === "delete" || action.kind === "suspend"
+                    ? "prov-btn-danger"
+                    : action.kind === "deactivate"
+                      ? "prov-btn-dark"
+                      : "prov-btn-primary"
+                }`}
+                type="button"
+                disabled={
+                  actionBusy ||
+                  (action.kind === "delete" &&
+                    deleteConfirmText.trim() !==
+                      (action.customer.name || action.customer.email || ""))
+                }
+                onClick={runAction}
+              >
+                {actionBusy ? (
+                  <>
+                    <Loader2 className="prov-spin" size={15} /> Working...
+                  </>
+                ) : action.kind === "suspend" ? (
+                  "Suspend"
+                ) : action.kind === "reactivate" ? (
+                  "Reactivate"
+                ) : action.kind === "deactivate" ? (
+                  "Deactivate"
+                ) : action.kind === "activate" ? (
+                  "Activate"
+                ) : action.kind === "reset" ? (
+                  "Send Reset Email"
+                ) : (
+                  "Delete"
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {toast ? (
+        <div className={`prov-toast prov-toast-${toast.type}`}>
+          {toast.type === "success" ? (
+            <UserCheck size={16} />
+          ) : (
+            <TriangleAlert size={16} />
+          )}
+          {toast.text}
+        </div>
+      ) : null}
+
+      {panelCustomer ? (
+        <CustomerDetailPanel
+          customer={panelCustomer}
+          displayId={idNumbers.get(panelCustomer._id) || ""}
+          onClose={() => setPanelId(null)}
+          onAction={openAction}
+          onMessage={(c) => setMessageCustomer(c)}
+          onEdit={(c) => setEditCustomer(c)}
+          tab={panelTab}
+          onTabChange={setPanelTab}
+        />
+      ) : null}
+
+      {editCustomer ? (
+        <EditCustomerModal
+          customer={editCustomer}
+          onClose={() => setEditCustomer(null)}
+          onSaved={(text) => {
+            setEditCustomer(null);
+            setToast({ type: "success", text });
+          }}
+        />
+      ) : null}
+
+      {messageCustomer ? (
+        <CustomerMessageModal
+          customer={messageCustomer}
+          onClose={() => setMessageCustomer(null)}
+          onSent={(text) => {
+            setMessageCustomer(null);
+            setToast({ type: "success", text });
+          }}
+        />
+      ) : null}
+
+      {addOpen ? (
+        <AddCustomerModal
+          onClose={() => setAddOpen(false)}
+          onCreated={(text) => {
+            setAddOpen(false);
+            setToast({ type: "success", text });
+          }}
+        />
+      ) : null}
     </section>
   );
 }

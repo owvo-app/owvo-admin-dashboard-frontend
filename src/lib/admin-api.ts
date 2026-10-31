@@ -1316,3 +1316,196 @@ export async function updateAdminProviderProfile(
   );
   return response.data.data;
 }
+
+
+// ─── Customers redesign: detail, notes, message, add/edit, actions ─────────
+export interface AdminCustomerDetailBooking {
+  _id: string;
+  ref: string;
+  status: string;
+  bookingDate?: string;
+  finalPrice?: number;
+  price?: number;
+  paymentStatus?: string | null;
+  serviceTitle: string;
+  providerName: string;
+  providerPhoto?: string;
+  vehicle: {
+    registrationNo?: string;
+    make?: string;
+    model?: string;
+    image?: string;
+  };
+  address?: string;
+  createdAt?: string;
+}
+
+export interface AdminCustomerDetail {
+  customer: AdminUser & {
+    accountStatus?: string;
+    residentialAddress?: string;
+    dateOfBirth?: string;
+    location?: { type?: string; coordinates?: number[] };
+    verificationInfo?: { verified?: boolean };
+  };
+  stats: {
+    totalBookings: number;
+    counts: {
+      completed: number;
+      cancelled: number;
+      declined: number;
+      active: number;
+    };
+    totalSpent: number;
+    tipsGiven: number;
+    ratingReceived: { average: number; count: number };
+    ratingGiven: { average: number; count: number };
+  };
+  bookings: AdminCustomerDetailBooking[];
+  vehicles: Array<{
+    _id: string;
+    registrationNo?: string;
+    make?: string;
+    model?: string;
+    year?: number | null;
+    size?: string;
+    colour?: string;
+    image?: string;
+    isDefault?: boolean;
+  }>;
+  payments: Array<{
+    _id: string;
+    ref: string;
+    type?: string;
+    amount: number;
+    currency?: string;
+    status?: string;
+    method?: string;
+    transactionId?: string;
+    createdAt?: string;
+  }>;
+  reviewsReceived: Array<{
+    _id: string;
+    rating: number;
+    review?: string;
+    providerName: string;
+    providerPhoto?: string;
+    bookingRef?: string;
+    createdAt?: string;
+  }>;
+  reviewsGiven: Array<{
+    _id: string;
+    rating: number;
+    review?: string;
+    providerName: string;
+    providerPhoto?: string;
+    serviceTitle?: string;
+    bookingRef?: string;
+    createdAt?: string;
+  }>;
+}
+
+export async function getAdminCustomerDetail(customerId: string) {
+  const response = await api.get<ApiEnvelope<AdminCustomerDetail>>(
+    `/admin/customers/${customerId}`
+  );
+  return response.data.data;
+}
+
+export async function createAdminCustomer(payload: {
+  name: string;
+  email: string;
+  phoneNumber: string;
+  password: string;
+  residentialAddress?: string;
+  dateOfBirth?: string;
+}) {
+  const response = await api.post<ApiEnvelope<AdminUser>>(
+    "/admin/customers",
+    payload
+  );
+  return response.data.data;
+}
+
+export async function updateAdminCustomerProfile(
+  customerId: string,
+  payload: {
+    name?: string;
+    email?: string;
+    phoneNumber?: string;
+    dateOfBirth?: string;
+    residentialAddress?: string;
+  }
+) {
+  const response = await api.patch<ApiEnvelope<AdminUser>>(
+    `/admin/customers/${customerId}/profile`,
+    payload
+  );
+  return response.data.data;
+}
+
+export async function updateCustomerEnforcement(
+  customerId: string,
+  payload: { status: string; reason?: string }
+) {
+  const response = await api.patch<ApiEnvelope<AdminUser>>(
+    `/admin/customers/${customerId}/enforcement`,
+    payload
+  );
+  return response.data.data;
+}
+
+export async function deleteAdminCustomer(customerId: string) {
+  const response = await api.delete<ApiEnvelope<{ _id: string }>>(
+    `/admin/customers/${customerId}`
+  );
+  return response.data.data;
+}
+
+export interface CustomerNoteItem {
+  _id: string;
+  text: string;
+  authorName: string;
+  authorRole?: string;
+  createdAt: string;
+}
+
+export async function getCustomerNotes(customerId: string) {
+  const response = await api.get<ApiEnvelope<CustomerNoteItem[]>>(
+    `/admin/customers/${customerId}/notes`
+  );
+  return response.data.data;
+}
+
+export async function addCustomerNote(customerId: string, text: string) {
+  const response = await api.post<ApiEnvelope<CustomerNoteItem>>(
+    `/admin/customers/${customerId}/notes`,
+    { text }
+  );
+  return response.data.data;
+}
+
+export async function deleteCustomerNote(customerId: string, noteId: string) {
+  const response = await api.delete<ApiEnvelope<{ _id: string }>>(
+    `/admin/customers/${customerId}/notes/${noteId}`
+  );
+  return response.data.data;
+}
+
+export async function sendCustomerMessage(
+  customerId: string,
+  payload: { title?: string; message: string }
+) {
+  const response = await api.post<ApiEnvelope<{ customerId: string }>>(
+    `/admin/customers/${customerId}/message`,
+    payload
+  );
+  return response.data.data;
+}
+
+export async function sendCustomerResetPassword(customerId: string) {
+  const response = await api.post<ApiEnvelope<{ customerId: string }>>(
+    `/admin/customers/${customerId}/reset-password`
+  );
+  return response.data.data;
+}
