@@ -1522,3 +1522,331 @@ export interface AdminCustomerDetail {
   latestBookingAddress?: string;
   mapLocation?: AdminCustomerMapLocation | null;
 }
+
+// ─── Bookings redesign (v2) ───
+// Naye types/functions puranay walon ke sath rehte hain; Bookings page aur
+// detail panel sirf ye v2 wale use karte hain.
+
+export type AdminBookingV2 = AdminBooking & {
+  postalCode?: string;
+  address?: {
+    addressLine?: string;
+    latitude?: number;
+    longitude?: number;
+  };
+  payment?: { method?: string; status?: string; trxId?: string };
+  refund?: {
+    status?: string;
+    amount?: number;
+    refundId?: string;
+    reason?: string;
+    at?: string;
+  } | null;
+  vehicleSnapshot?: {
+    registrationNo?: string;
+    make?: string;
+    model?: string;
+    year?: number | null;
+    size?: string;
+    image?: string;
+  };
+  addons?: Array<{ name?: string; price?: number }>;
+  addonsTotal?: number;
+  price?: number;
+  discountPrice?: number;
+  couponCode?: string;
+  providerRating?: { average: number; count: number };
+  hasOpenDispute?: boolean;
+  user?: AdminBooking["user"] & { phoneNumber?: string };
+  provider?: AdminBooking["provider"] & {
+    phoneNumber?: string;
+    isOnline?: boolean;
+  };
+};
+
+export type AdminBookingsListParams = {
+  status?: string;
+  from?: string;
+  to?: string;
+  range?: string;
+  search?: string;
+  serviceId?: string;
+  paymentStatus?: string;
+  location?: string;
+  disputed?: boolean;
+  day?: string;
+  page?: number;
+  limit?: number;
+};
+
+export type AdminBookingsListResult = {
+  items: AdminBookingV2[];
+  pagination: { page: number; limit: number; total: number; pages: number };
+  summary?: {
+    total: number;
+    byStatus: Record<string, number>;
+    newThisMonth: number;
+  };
+  locations?: Array<{ value: string; label: string }>;
+};
+
+export async function getAdminBookingsV2(params: AdminBookingsListParams) {
+  const query = buildQuery({
+    status: params.status && params.status !== "all" ? params.status : undefined,
+    from: params.from,
+    to: params.to,
+    range: params.range,
+    search: params.search?.trim() || undefined,
+    serviceId: params.serviceId,
+    paymentStatus: params.paymentStatus,
+    location: params.location,
+    disputed: params.disputed ? "1" : undefined,
+    day: params.day,
+    page: params.page,
+    limit: params.limit,
+  });
+  const response = await api.get<ApiEnvelope<AdminBookingsListResult>>(
+    `/admin/bookings${query}`
+  );
+  return response.data.data;
+}
+
+export type AdminBookingPaymentRecord = {
+  _id: string;
+  type?: string;
+  price?: number;
+  paymentStatus?: string;
+  status?: string;
+  paymentMethod?: string;
+  transactionId?: string;
+  createdAt?: string;
+};
+
+export type AdminBookingTimelineEntry = {
+  status: string;
+  at?: string | null;
+  by?: string;
+  note?: string;
+  source?: string;
+};
+
+export type AdminBookingV2Detail = Omit<AdminBookingV2, "providerRating"> & {
+  notes?: string;
+  estimatedArrival?: string | null;
+  customerLocation?: {
+    latitude?: number | null;
+    longitude?: number | null;
+    updatedAt?: string | null;
+  } | null;
+  customerEtaMinutes?: number | null;
+  customerDistanceMiles?: number | null;
+  cancellationReason?: string;
+  cancelledBy?: string;
+  cancelledAt?: string;
+  arrivedAt?: string;
+  completedAt?: string;
+  coupon?: { code?: string } | string;
+  payments?: AdminBookingPaymentRecord[];
+  tipsTotal?: number;
+  providerRating?: {
+    rating: number;
+    review?: string;
+    at?: string;
+  } | null;
+  customerRating?: {
+    rating: number;
+    review?: string;
+    at?: string;
+  } | null;
+  providerStats?: {
+    ratingAverage: number;
+    ratingCount: number;
+    completedJobs: number;
+  };
+  openDispute?: {
+    _id: string;
+    ticketNumber?: string;
+    status?: string;
+    priority?: string;
+    createdAt?: string;
+  } | null;
+  timeline?: AdminBookingTimelineEntry[];
+};
+
+export async function getAdminBookingByIdV2(bookingId: string) {
+  const response = await api.get<ApiEnvelope<AdminBookingV2Detail>>(
+    `/admin/bookings/${bookingId}`
+  );
+  return response.data.data;
+}
+
+export type AdminBookingStatusPayload = {
+  status: string;
+  reason?: string;
+  notes?: string;
+  notifyCustomer?: boolean;
+  notifyProvider?: boolean;
+  providerId?: string;
+  estimatedArrival?: string;
+};
+
+export async function updateAdminBookingStatusV2(
+  bookingId: string,
+  payload: AdminBookingStatusPayload
+) {
+  const response = await api.patch<ApiEnvelope<AdminBookingV2>>(
+    `/admin/bookings/${bookingId}/status`,
+    payload
+  );
+  return response.data.data;
+}
+
+export async function exportAdminBookingsCsv(
+  params: AdminBookingsListParams & { ids?: string[] }
+) {
+  const query = buildQuery({
+    status: params.status && params.status !== "all" ? params.status : undefined,
+    from: params.from,
+    to: params.to,
+    range: params.range,
+    search: params.search?.trim() || undefined,
+    serviceId: params.serviceId,
+    paymentStatus: params.paymentStatus,
+    location: params.location,
+    disputed: params.disputed ? "1" : undefined,
+    day: params.day,
+    ids: params.ids && params.ids.length ? params.ids.join(",") : undefined,
+  });
+  const response = await api.get(`/admin/bookings/export${query}`, {
+    responseType: "blob",
+  });
+  return response.data as Blob;
+}
+
+// ─── Booking chat (admin) ───
+export type AdminChatMessage = {
+  _id: string;
+  text: string;
+  attachment?: {
+    url?: string;
+    type?: string;
+    name?: string;
+    mimeType?: string;
+    size?: number;
+  } | null;
+  senderId?: string;
+  senderName?: string;
+  senderPhoto?: string;
+  isAdmin?: boolean;
+  createdAt?: string;
+};
+
+export async function getAdminBookingMessages(bookingId: string) {
+  const response = await api.get<ApiEnvelope<AdminChatMessage[]>>(
+    `/admin/bookings/${bookingId}/messages`
+  );
+  return response.data.data;
+}
+
+export async function sendAdminBookingMessage(bookingId: string, text: string) {
+  const response = await api.post<ApiEnvelope<AdminChatMessage>>(
+    `/admin/bookings/${bookingId}/messages`,
+    { text }
+  );
+  return response.data.data;
+}
+
+// ─── Booking notes (admin) ───
+export type AdminBookingNoteItem = {
+  _id: string;
+  text: string;
+  authorName?: string;
+  createdAt?: string;
+};
+
+export async function getAdminBookingNotes(bookingId: string) {
+  const response = await api.get<ApiEnvelope<AdminBookingNoteItem[]>>(
+    `/admin/bookings/${bookingId}/notes`
+  );
+  return response.data.data;
+}
+
+export async function addAdminBookingNote(bookingId: string, text: string) {
+  const response = await api.post<ApiEnvelope<AdminBookingNoteItem>>(
+    `/admin/bookings/${bookingId}/notes`,
+    { text }
+  );
+  return response.data.data;
+}
+
+export async function deleteAdminBookingNote(bookingId: string, noteId: string) {
+  const response = await api.delete<ApiEnvelope<{ _id: string }>>(
+    `/admin/bookings/${bookingId}/notes/${noteId}`
+  );
+  return response.data.data;
+}
+
+// ─── Booking dispute ───
+export type AdminBookingDispute = {
+  _id: string;
+  ticketNumber?: string;
+  subject?: string;
+  description?: string;
+  priority?: string;
+  status?: string;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export async function getAdminBookingDispute(bookingId: string) {
+  const response = await api.get<
+    ApiEnvelope<{ dispute: AdminBookingDispute | null }>
+  >(`/admin/bookings/${bookingId}/dispute`);
+  return response.data.data;
+}
+
+export async function createAdminBookingDispute(
+  bookingId: string,
+  payload: { subject?: string; description: string; priority?: string }
+) {
+  const response = await api.post<
+    ApiEnvelope<{ dispute: AdminBookingDispute | null }>
+  >(`/admin/bookings/${bookingId}/dispute`, payload);
+  return response.data.data;
+}
+
+export async function sendAdminBookingNotification(
+  bookingId: string,
+  payload: { message: string; notifyCustomer?: boolean; notifyProvider?: boolean }
+) {
+  const response = await api.post<ApiEnvelope<{ notified: string[] }>>(
+    `/admin/bookings/${bookingId}/notify`,
+    payload
+  );
+  return response.data.data;
+}
+
+// ─── Booking refund + create v2 ───
+export async function refundAdminBooking(bookingId: string, reason?: string) {
+  const response = await api.post<
+    ApiEnvelope<{ booking: AdminBookingV2; refund: AdminBookingV2["refund"] }>
+  >(`/admin/bookings/${bookingId}/refund`, { reason: reason || "" });
+  return response.data.data;
+}
+
+export async function createAdminBookingV2(data: {
+  customerId: string;
+  providerId: string;
+  serviceId: string;
+  vehicleId?: string;
+  addonIds?: string[];
+  bookingDate: string;
+  address: { addressLine: string; latitude: number; longitude: number };
+  notes?: string;
+}) {
+  const response = await api.post<ApiEnvelope<AdminBookingV2>>(
+    "/admin/bookings",
+    data
+  );
+  return response.data.data;
+}

@@ -1,140 +1,218 @@
 "use client";
 
+import { SOCKET_URL } from "@/lib/api";
 import {
-  getAdminBookings,
-  updateAdminBookingStatus,
-  type AdminBooking,
+  exportAdminBookingsCsv,
+  getAdminBookingsV2,
+  getAdminServicesPricing,
+  type AdminBookingV2,
 } from "@/lib/admin-api";
 import { getStoredUser } from "@/lib/auth-storage";
-import { useDashboardDateRange } from "@/hooks/useDashboardDateRange";
 import { money } from "@/lib/format";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { format } from "date-fns";
-import { CheckCircle2, Clock3, Eye, Loader2, Navigation, PlayCircle, XCircle, AlertTriangle, Hourglass } from "lucide-react";
+import { getDashboardSocketOptions } from "@/lib/socket";
+import { useDashboardDateRange } from "@/hooks/useDashboardDateRange";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  BadgeCheck,
+  Bell,
+  CheckCircle2,
+  ClipboardList,
+  Clock3,
+  Eye,
+  Loader2,
+  Navigation,
+  PlayCircle,
+  SlidersHorizontal,
+  XCircle,
+} from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { io } from "socket.io-client";
+import {
+  BK_STATUS_LABELS,
+  BookingActionModal,
+  bkCan,
+  bkDate,
+  bkPaymentBadge,
+  bkShortId,
+  bkTime,
+  type BookingActionKind,
+} from "./bookings/BookingActionModals";
 import { BookingDetailPanel } from "./bookings/BookingDetailPanel";
 import { CreateBookingModal } from "./bookings/CreateBookingModal";
-import { useMemo, useState } from "react";
 
-const statusOptions = [
-  { value: "all", label: "All" },
-  { value: "pending", label: "Requested" },
-  { value: "accepted", label: "Accepted" },
-  { value: "arrived", label: "Arrived" },
-  { value: "ongoing", label: "In Progress" },
-  { value: "completed", label: "Completed" },
-  { value: "cancelled", label: "Cancelled" },
+const STATUS_CARDS = [
+  { key: "pending", label: "Requested", icon: Clock3, cls: "blue" },
+  { key: "accepted", label: "Accepted", icon: CheckCircle2, cls: "green" },
+  { key: "arrived", label: "Arrived", icon: Navigation, cls: "purple" },
+  { key: "ongoing", label: "In Progress", icon: PlayCircle, cls: "orange" },
+  { key: "completed", label: "Completed", icon: BadgeCheck, cls: "green" },
+  { key: "cancelled", label: "Cancelled", icon: XCircle, cls: "red" },
 ];
 
-const statusLabels: Record<string, string> = {
-  pending: "Requested",
-  accepted: "Accepted",
-  arrived: "Arrived",
-  ongoing: "In Progress",
-  completed: "Completed",
-  cancelled: "Cancelled",
-};
-
-const actionButtons = [
+const ROW_ACTIONS: Array<{
+  status: BookingActionKind;
+  label: string;
+  icon: typeof Eye;
+}> = [
   { status: "accepted", label: "Accept", icon: CheckCircle2 },
-  { status: "arrived", label: "Arrived", icon: Navigation },
-  { status: "ongoing", label: "Start", icon: PlayCircle },
-  { status: "completed", label: "Complete", icon: CheckCircle2 },
+  { status: "arrived", label: "Mark arrived", icon: Navigation },
+  { status: "ongoing", label: "Start wash", icon: PlayCircle },
+  { status: "completed", label: "Complete", icon: BadgeCheck },
   { status: "cancelled", label: "Cancel", icon: XCircle },
 ];
+
+function toArray(d: any): any[] {
+  if (!d) return [];
+  if (Array.isArray(d)) return d;
+  if (Array.isArray(d.items)) return d.items;
+  if (Array.isArray(d.services)) return d.services;
+  if (Array.isArray(d.data)) return d.data;
+  return [];
+}
 
 function BookingRow({
   booking,
   canSeeMoney,
-  onUpdate,
-  updating,
   selected,
   onSelect,
-  onViewPanel,
+  onView,
+  onAction,
 }: {
-  booking: AdminBooking;
+  booking: AdminBookingV2;
   canSeeMoney: boolean;
-  onUpdate: (bookingId: string, status: string) => void;
-  updating: boolean;
   selected: boolean;
   onSelect: (id: string) => void;
-  onViewPanel: (id: string) => void;
+  onView: (id: string) => void;
+  onAction: (booking: AdminBookingV2, action: BookingActionKind) => void;
 }) {
-  const date = booking.bookingDate ? new Date(booking.bookingDate) : null;
-  const paid = (booking as any).payment?.status === "paid";
-  const customerInitial = (booking.user?.name || "C").slice(0, 1).toUpperCase();
+  const pay = bkPaymentBadge(booking);
+  const customerPhoto = (booking.user as any)?.photo?.url;
+  const providerPhoto = (booking.provider as any)?.photo?.url;
+  const rating = booking.providerRating;
+  const vehicleText =
+    (booking as any).vehicleSnapshot?.model ||
+    [booking.vehicleSnapshot?.make, booking.vehicleSnapshot?.model]
+      .filter(Boolean)
+      .join(" ") ||
+    "";
 
   return (
-    <tr className="clickable-row">
-      <td onClick={(e) => { e.stopPropagation(); onSelect(booking._id); }}>
+    <tr className="clickable-row" onClick={() => onView(booking._id)}>
+      <td onClick={(e) => e.stopPropagation()}>
         <input
-          type="checkbox"
           checked={selected}
           onChange={() => onSelect(booking._id)}
-          onClick={(e) => e.stopPropagation()}
+          type="checkbox"
         />
       </td>
-      <td onClick={() => (window.location.href = `/bookings/${booking._id}`)}>
-        <strong>#{booking._id.slice(-6).toUpperCase()}</strong>
+      <td>
+        <strong>{bkShortId(booking._id)}</strong>
+        {booking.hasOpenDispute ? (
+          <span className="bk2-dispute-dot" title="Open dispute on this booking">
+            ⚠ Dispute
+          </span>
+        ) : null}
       </td>
-      <td onClick={() => (window.location.href = `/bookings/${booking._id}`)}>
-        <span>{date ? format(date, "dd MMM yyyy") : "No date"}</span>
-        <span className="table-sub">{date ? format(date, "hh:mm a") : ""}</span>
+      <td>
+        <span>{bkDate(booking.bookingDate)}</span>
+        <span className="table-sub">{bkTime(booking.bookingDate)}</span>
       </td>
-      <td onClick={() => (window.location.href = `/bookings/${booking._id}`)}>
+      <td>
         <div className="table-customer">
-          <span className="table-avatar">{customerInitial}</span>
+          {customerPhoto ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img alt="" className="bk2-avatar-img" src={customerPhoto} />
+          ) : (
+            <span className="table-avatar">
+              {(booking.user?.name || "C").slice(0, 1).toUpperCase()}
+            </span>
+          )}
           <div>
             <strong>{booking.user?.name || "Customer"}</strong>
-            <span className="table-sub">{(booking.user as any)?.phoneNumber || booking.user?.email || ""}</span>
+            <span className="table-sub">
+              {(booking.user as any)?.phoneNumber || booking.user?.email || ""}
+            </span>
           </div>
         </div>
       </td>
-      <td onClick={() => (window.location.href = `/bookings/${booking._id}`)}>
-        <strong>{booking.provider?.name || "Washer"}</strong>
-        <span className="table-sub">⭐ {(booking.provider as any)?.customerRatingAverage?.toFixed(1) || "—"}</span>
-      </td>
-      <td onClick={() => (window.location.href = `/bookings/${booking._id}`)}>
-        <strong>{booking.service?.title || "Wash Service"}</strong>
-        <span className="table-sub">{(booking as any).vehicle?.model || (booking as any).vehicleSnapshot?.model || ""}</span>
-      </td>
-      {canSeeMoney ? <td className="numeric-cell" onClick={() => (window.location.href = `/bookings/${booking._id}`)}>{money(booking.finalPrice)}</td> : null}
-      <td onClick={() => (window.location.href = `/bookings/${booking._id}`)}>
-        <span className={`payment-badge ${paid ? "paid" : "failed"}`}>
-          {paid ? "✓ Paid" : "✗ Failed"}
-        </span>
-      </td>
-      <td onClick={() => (window.location.href = `/bookings/${booking._id}`)}>
-        <span className={`table-status ${booking.status}`}>
-          {statusLabels[booking.status] || booking.status}
-        </span>
+      <td>
+        <div className="table-customer">
+          {providerPhoto ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img alt="" className="bk2-avatar-img" src={providerPhoto} />
+          ) : (
+            <span className="table-avatar">
+              {(booking.provider?.name || "W").slice(0, 1).toUpperCase()}
+            </span>
+          )}
+          <div>
+            <strong>{booking.provider?.name || "Provider"}</strong>
+            <span className="table-sub">
+              {rating && rating.count > 0
+                ? `⭐ ${rating.average.toFixed(1)} (${rating.count})`
+                : "⭐ No ratings yet"}
+            </span>
+          </div>
+        </div>
       </td>
       <td>
+        <strong>{booking.service?.title || "Wash Service"}</strong>
+        <span className="table-sub">{vehicleText}</span>
+      </td>
+      {canSeeMoney ? (
+        <td className="numeric-cell">{money(booking.finalPrice)}</td>
+      ) : null}
+      <td>
+        <span className={`bk2-pay ${pay.cls}`}>{pay.label}</span>
+      </td>
+      <td>
+        <span className={`table-status ${booking.status}`}>
+          {BK_STATUS_LABELS[booking.status] || booking.status}
+        </span>
+      </td>
+      <td onClick={(e) => e.stopPropagation()}>
         <div className="row-actions">
           <button
             aria-label="View booking"
             className="mini-icon-button"
-            onClick={(e) => { e.stopPropagation(); onViewPanel(booking._id); }}
-            title="Quick view"
+            onClick={() => onView(booking._id)}
+            title="View details"
             type="button"
           >
             <Eye size={15} />
           </button>
-          {actionButtons.map((action) => {
-            const Icon = action.icon;
+          {ROW_ACTIONS.map((a) => {
+            const Icon = a.icon;
+            const allowed = bkCan(booking.status, a.status);
             return (
               <button
-                aria-label={`${action.label} booking`}
+                aria-label={a.label}
                 className="mini-icon-button"
-                disabled={updating || booking.status === action.status}
-                key={action.status}
-                onClick={(e) => { e.stopPropagation(); onUpdate(booking._id, action.status); }}
-                title={action.label}
+                disabled={!allowed}
+                key={a.status}
+                onClick={() => onAction(booking, a.status)}
+                title={
+                  allowed
+                    ? a.label
+                    : `${a.label} is not available for a ${
+                        BK_STATUS_LABELS[booking.status] || booking.status
+                      } booking`
+                }
                 type="button"
               >
-                {updating ? <Loader2 size={15} /> : <Icon size={15} />}
+                <Icon size={15} />
               </button>
             );
           })}
+          <button
+            aria-label="Send notification"
+            className="mini-icon-button"
+            onClick={() => onAction(booking, "notification")}
+            title="Send notification"
+            type="button"
+          >
+            <Bell size={15} />
+          </button>
         </div>
       </td>
     </tr>
@@ -145,73 +223,166 @@ export function BookingsPageContent() {
   const queryClient = useQueryClient();
   const dateRange = useDashboardDateRange();
   const [status, setStatus] = useState("all");
+  const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
-  const [serviceFilter, setServiceFilter] = useState("all");
+  const [serviceId, setServiceId] = useState("");
+  const [location, setLocation] = useState("");
+  const [paymentStatus, setPaymentStatus] = useState("");
+  const [day, setDay] = useState("");
+  const [disputedOnly, setDisputedOnly] = useState(false);
+  const [showMore, setShowMore] = useState(false);
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(10);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [panelBookingId, setPanelBookingId] = useState<string | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [modal, setModal] = useState<{
+    booking: AdminBookingV2;
+    action: BookingActionKind;
+  } | null>(null);
+  const [toast, setToast] = useState("");
+  const [exporting, setExporting] = useState(false);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const user = useMemo(() => getStoredUser(), []);
   const canSeeMoney = user?.role === "admin";
 
-  const bookingsQuery = useQuery({
-    queryKey: ["admin-bookings", status, dateRange.queryKey],
-    queryFn: () => getAdminBookings(status, dateRange.query),
-  });
-
-  const statusMutation = useMutation({
-    mutationFn: ({ bookingId, nextStatus }: { bookingId: string; nextStatus: string }) =>
-      updateAdminBookingStatus(bookingId, nextStatus),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["admin-bookings"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard-overview"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard-recent-bookings"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard-upcoming-bookings"] });
-    },
-  });
-
-  // Summary counts - fetched separately for all statuses
-  const summaryQuery = useQuery({
-    queryKey: ["admin-bookings-summary", dateRange.queryKey],
-    queryFn: () => getAdminBookings("all", dateRange.query),
-  });
-
-  const bookings = bookingsQuery.data?.items ?? [];
-  const allBookings = summaryQuery.data?.items ?? [];
-
-  // Client-side search + service filter
-  const filteredBookings = bookings.filter((b) => {
-    if (serviceFilter !== "all" && b.service?._id !== serviceFilter && b.service?.title !== serviceFilter) return false;
-    if (!search.trim()) return true;
-    const q = search.toLowerCase();
-    return (
-      b._id.toLowerCase().includes(q) ||
-      (b.user?.name || "").toLowerCase().includes(q) ||
-      (b.provider?.name || "").toLowerCase().includes(q)
-    );
-  });
-
-  // Unique services for filter dropdown (dedupe by title)
-  const serviceOptions = Array.from(
-    new Map(
-      allBookings
-        .map((b) => {
-          const title = typeof b.service === "string" ? b.service : b.service?.title;
-          const id = typeof b.service === "string" ? b.service : b.service?._id || title;
-          return title ? [title, { id, title }] : null;
-        })
-        .filter(Boolean) as [string, { id: string; title: string }][]
-    ).values()
-  );
-
-  const summaryCounts = {
-    requested: allBookings.filter((b) => b.status === "pending").length,
-    accepted: allBookings.filter((b) => b.status === "accepted").length,
-    arrived: allBookings.filter((b) => b.status === "arrived").length,
-    inProgress: allBookings.filter((b) => b.status === "ongoing").length,
-    completed: allBookings.filter((b) => b.status === "completed").length,
-    cancelled: allBookings.filter((b) => b.status === "cancelled").length,
-    disputed: 0, // Backend me dispute field nahi hy abhi
+  const showToast = (msg: string) => {
+    setToast(msg);
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(""), 4000);
   };
+
+  // Search debounce
+  useEffect(() => {
+    const t = setTimeout(() => setSearch(searchInput), 400);
+    return () => clearTimeout(t);
+  }, [searchInput]);
+
+  // Koi bhi filter badle to pehle page par wapas + selection saaf
+  useEffect(() => {
+    setPage(1);
+    setSelectedIds([]);
+  }, [status, search, serviceId, location, paymentStatus, day, disputedOnly, limit, dateRange.queryKey]);
+
+  const bookingsQuery = useQuery({
+    queryKey: [
+      "admin-bookings-v2",
+      status,
+      dateRange.queryKey,
+      search,
+      serviceId,
+      location,
+      paymentStatus,
+      day,
+      disputedOnly,
+      page,
+      limit,
+    ],
+    queryFn: () =>
+      getAdminBookingsV2({
+        status,
+        ...dateRange.query,
+        search: search || undefined,
+        serviceId: serviceId || undefined,
+        location: location || undefined,
+        paymentStatus: paymentStatus || undefined,
+        day: day || undefined,
+        disputed: disputedOnly || undefined,
+        page,
+        limit,
+      }),
+  });
+
+  const servicesQuery = useQuery({
+    queryKey: ["services-pricing"],
+    queryFn: getAdminServicesPricing,
+  });
+  const serviceOptions = toArray(servicesQuery.data);
+
+  // Live updates: nayi booking ya status change par list khud refresh
+  useEffect(() => {
+    if (!user?._id) return;
+    const socket = io(SOCKET_URL, getDashboardSocketOptions(user._id));
+    const refresh = () =>
+      queryClient.invalidateQueries({ queryKey: ["admin-bookings-v2"] });
+    socket.on("admin_booking_created", refresh);
+    socket.on("admin_booking_status_updated", refresh);
+    return () => {
+      socket.disconnect();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?._id]);
+
+  const data = bookingsQuery.data;
+  const bookings = data?.items ?? [];
+  const pagination = data?.pagination ?? { page: 1, limit, total: 0, pages: 1 };
+  const summary = data?.summary;
+  const locationOptions = data?.locations ?? [];
+  const byStatus = summary?.byStatus ?? {};
+  const totalCount = summary?.total ?? pagination.total;
+
+  const hasFilters = Boolean(
+    search || serviceId || location || paymentStatus || day || disputedOnly || status !== "all"
+  );
+  const moreActive = Boolean(paymentStatus || day || disputedOnly);
+
+  const resetFilters = () => {
+    setSearchInput("");
+    setSearch("");
+    setStatus("all");
+    setServiceId("");
+    setLocation("");
+    setPaymentStatus("");
+    setDay("");
+    setDisputedOnly(false);
+  };
+
+  const handleExport = async () => {
+    try {
+      setExporting(true);
+      const blob = await exportAdminBookingsCsv({
+        status,
+        ...dateRange.query,
+        search: search || undefined,
+        serviceId: serviceId || undefined,
+        location: location || undefined,
+        paymentStatus: paymentStatus || undefined,
+        day: day || undefined,
+        disputed: disputedOnly || undefined,
+        ids: selectedIds.length ? selectedIds : undefined,
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `bookings-${new Date().toISOString().split("T")[0]}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast(
+        selectedIds.length
+          ? `Exported ${selectedIds.length} selected booking(s).`
+          : "Export downloaded."
+      );
+    } catch {
+      showToast("Export failed. Please try again.");
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const pageNumbers = useMemo(() => {
+    const total = Math.max(pagination.pages || 1, 1);
+    const cur = Math.min(page, total);
+    const out: Array<number | "…"> = [];
+    for (let i = 1; i <= total; i++) {
+      if (i === 1 || i === total || Math.abs(i - cur) <= 1) out.push(i);
+      else if (out[out.length - 1] !== "…") out.push("…");
+    }
+    return out;
+  }, [page, pagination.pages]);
+
+  const fromRow = bookings.length ? (pagination.page - 1) * pagination.limit + 1 : 0;
+  const toRow = (pagination.page - 1) * pagination.limit + bookings.length;
 
   return (
     <section className="data-page">
@@ -230,80 +401,66 @@ export function BookingsPageContent() {
           </button>
           <button
             className="booking-export-btn"
-            onClick={() => {
-              const csv = [
-                "Booking ID,Date,Customer,Provider,Service,Amount,Payment,Status",
-                ...filteredBookings.map((b) =>
-                  [
-                    `#${b._id.slice(-6).toUpperCase()}`,
-                    b.bookingDate ? new Date(b.bookingDate).toLocaleDateString() : "",
-                    b.user?.name || "",
-                    b.provider?.name || "",
-                    b.service?.title || "",
-                    b.finalPrice || "",
-                    (b as any).payment?.status || "",
-                    b.status,
-                  ].join(",")
-                ),
-              ].join("\n");
-              const blob = new Blob([csv], { type: "text/csv" });
-              const url = URL.createObjectURL(blob);
-              const a = document.createElement("a");
-              a.href = url;
-              a.download = `bookings-${new Date().toISOString().split("T")[0]}.csv`;
-              a.click();
-            }}
+            disabled={exporting}
+            onClick={handleExport}
             type="button"
           >
-            ⬇ Export
+            {exporting ? "Exporting..." : "⬇ Export"}
           </button>
         </div>
       </div>
 
-      {/* Summary cards - 7 statuses */}
+      {/* Summary cards — kul numbers hamesha server summary se */}
       <div className="booking-summary-grid-7">
-        {[
-          { key: "pending", label: "Requested", count: summaryCounts.requested, icon: Clock3, cls: "blue" },
-          { key: "accepted", label: "Accepted", count: summaryCounts.accepted, icon: CheckCircle2, cls: "green" },
-          { key: "arrived", label: "Arrived", count: summaryCounts.arrived, icon: Navigation, cls: "purple" },
-          { key: "ongoing", label: "In Progress", count: summaryCounts.inProgress, icon: PlayCircle, cls: "orange" },
-          { key: "completed", label: "Completed", count: summaryCounts.completed, icon: CheckCircle2, cls: "green" },
-          { key: "cancelled", label: "Cancelled", count: summaryCounts.cancelled, icon: XCircle, cls: "red" },
-          { key: "disputed", label: "Disputed", count: summaryCounts.disputed, icon: AlertTriangle, cls: "orange" },
-        ].map((c) => (
+        <button
+          className={`booking-summary-card ${status === "all" ? "active" : ""}`}
+          onClick={() => setStatus("all")}
+          type="button"
+        >
+          <div className="booking-summary-icon blue">
+            <ClipboardList size={20} />
+          </div>
+          <div>
+            <div className="booking-summary-value">{totalCount}</div>
+            <div className="booking-summary-label">Total Bookings</div>
+            <div className="bk2-card-sub">
+              {summary ? `+${summary.newThisMonth} this month` : ""}
+            </div>
+          </div>
+        </button>
+        {STATUS_CARDS.map((c) => (
           <button
-            key={c.key}
             className={`booking-summary-card ${status === c.key ? "active" : ""}`}
-            onClick={() => c.key !== "disputed" && setStatus(status === c.key ? "all" : c.key)}
+            key={c.key}
+            onClick={() => setStatus(status === c.key ? "all" : c.key)}
             type="button"
-            title={c.key === "disputed" ? "Dispute tracking coming soon" : undefined}
           >
             <div className={`booking-summary-icon ${c.cls}`}>
               <c.icon size={20} />
             </div>
             <div>
-              <div className="booking-summary-value">{c.count}</div>
+              <div className="booking-summary-value">{byStatus[c.key] ?? 0}</div>
               <div className="booking-summary-label">{c.label}</div>
             </div>
           </button>
         ))}
       </div>
 
-      {/* Search + Filters */}
+      {/* Search + filters */}
       <div className="booking-filters">
         <div className="booking-search">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
           <input
+            onChange={(e) => setSearchInput(e.target.value)}
+            placeholder="Search booking ID, customer, provider, phone or postcode..."
             type="text"
-            placeholder="Search by booking ID, customer name, provider name..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            value={searchInput}
           />
         </div>
         <select
           className="booking-filter-select"
-          value={status}
           onChange={(e) => setStatus(e.target.value)}
+          value={status}
         >
           <option value="all">All Statuses</option>
           <option value="pending">Requested</option>
@@ -312,36 +469,109 @@ export function BookingsPageContent() {
           <option value="ongoing">In Progress</option>
           <option value="completed">Completed</option>
           <option value="cancelled">Cancelled</option>
+          <option value="declined">Declined</option>
         </select>
         <select
           className="booking-filter-select"
-          value={serviceFilter}
-          onChange={(e) => setServiceFilter(e.target.value)}
+          onChange={(e) => setServiceId(e.target.value)}
+          value={serviceId}
         >
-          <option value="all">All Services</option>
-          {serviceOptions.map((s) => (
-            <option key={s.id} value={s.title}>{s.title}</option>
+          <option value="">All Services</option>
+          {serviceOptions.map((s: any) => (
+            <option key={s._id} value={s._id}>
+              {s.title}
+            </option>
+          ))}
+        </select>
+        <select
+          className="booking-filter-select"
+          onChange={(e) => setLocation(e.target.value)}
+          value={location}
+        >
+          <option value="">All Locations</option>
+          {locationOptions.map((l) => (
+            <option key={l.value} value={l.value}>
+              {l.label}
+            </option>
           ))}
         </select>
         <button
+          className={`booking-filter-reset bk2-more-btn ${moreActive ? "bk2-more-active" : ""}`}
+          onClick={() => setShowMore((v) => !v)}
+          type="button"
+        >
+          <SlidersHorizontal size={14} /> More Filters{moreActive ? " •" : ""}
+        </button>
+        <button
           className="booking-filter-reset"
-          onClick={() => { setSearch(""); setStatus("all"); setServiceFilter("all"); }}
+          onClick={resetFilters}
           type="button"
         >
           Reset
         </button>
       </div>
 
+      {showMore && (
+        <div className="bk2-more-panel">
+          <label className="bk2-more-field">
+            <span>Payment status</span>
+            <select
+              className="booking-filter-select"
+              onChange={(e) => setPaymentStatus(e.target.value)}
+              value={paymentStatus}
+            >
+              <option value="">All payments</option>
+              <option value="paid">Paid</option>
+              <option value="pending">Pending</option>
+              <option value="failed">Failed</option>
+              <option value="refunded">Refunded</option>
+            </select>
+          </label>
+          <label className="bk2-more-field">
+            <span>Specific day</span>
+            <input
+              className="booking-filter-select"
+              onChange={(e) => setDay(e.target.value)}
+              type="date"
+              value={day}
+            />
+          </label>
+          <label className="bk2-check bk2-more-check">
+            <input
+              checked={disputedOnly}
+              onChange={(e) => setDisputedOnly(e.target.checked)}
+              type="checkbox"
+            />
+            Only disputed bookings
+          </label>
+          {day ? (
+            <span className="bk2-more-note">
+              Day filter replaces the top date range.
+            </span>
+          ) : null}
+        </div>
+      )}
+
       <div className="table-card">
         <table className="admin-table">
           <thead>
             <tr>
-              <th><input type="checkbox" onChange={(e) => {
-                if (e.target.checked) setSelectedIds(filteredBookings.map((b) => b._id));
-                else setSelectedIds([]);
-              }} /></th>
+              <th>
+                <input
+                  checked={
+                    bookings.length > 0 &&
+                    bookings.every((b) => selectedIds.includes(b._id))
+                  }
+                  onChange={(e) =>
+                    setSelectedIds(
+                      e.target.checked ? bookings.map((b) => b._id) : []
+                    )
+                  }
+                  type="checkbox"
+                />
+              </th>
               <th>Booking ID</th>
-              <th>Date & Time</th>
+              <th>Date &amp; Time</th>
               <th>Customer</th>
               <th>Provider</th>
               <th>Service</th>
@@ -352,46 +582,139 @@ export function BookingsPageContent() {
             </tr>
           </thead>
           <tbody>
-            {filteredBookings.map((booking) => (
+            {bookings.map((booking) => (
               <BookingRow
                 booking={booking}
                 canSeeMoney={canSeeMoney}
                 key={booking._id}
-                onUpdate={(bookingId, nextStatus) =>
-                  statusMutation.mutate({ bookingId, nextStatus })
-                }
-                updating={statusMutation.isPending}
-                selected={selectedIds.includes(booking._id)}
+                onAction={(b, action) => setModal({ booking: b, action })}
                 onSelect={(id) =>
                   setSelectedIds((prev) =>
-                    prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+                    prev.includes(id)
+                      ? prev.filter((x) => x !== id)
+                      : [...prev, id]
                   )
                 }
-                onViewPanel={(id) => setPanelBookingId(id)}
+                onView={(id) => setPanelBookingId(id)}
+                selected={selectedIds.includes(booking._id)}
               />
             ))}
           </tbody>
         </table>
+
         {bookingsQuery.isLoading ? (
           <div className="empty-state">
-            <Clock3 size={22} />
-            Loading bookings...
+            <Loader2 size={22} /> Loading bookings...
           </div>
         ) : null}
-        {!bookingsQuery.isLoading && filteredBookings.length === 0 ? (
-          <div className="empty-state">No bookings found for this filter.</div>
-        ) : null}
         {bookingsQuery.isError ? (
-          <div className="error-state">Could not load bookings. Check backend and login token.</div>
+          <div className="error-state">
+            Could not load bookings. Check your connection and try again.
+            <button
+              className="booking-filter-reset"
+              onClick={() => bookingsQuery.refetch()}
+              type="button"
+            >
+              Retry
+            </button>
+          </div>
+        ) : null}
+        {!bookingsQuery.isLoading &&
+        !bookingsQuery.isError &&
+        bookings.length === 0 ? (
+          <div className="empty-state">
+            {hasFilters
+              ? "No bookings match these filters."
+              : "No bookings in this date range. Try widening the range from the top bar (for example, All Time)."}
+            {hasFilters ? (
+              <button
+                className="booking-filter-reset"
+                onClick={resetFilters}
+                type="button"
+              >
+                Clear filters
+              </button>
+            ) : null}
+          </div>
         ) : null}
 
-      {/* Detail slide-in panel */}
+        {/* Pagination */}
+        {pagination.total > 0 ? (
+          <div className="bk2-pagination">
+            <span>
+              Showing {fromRow}–{toRow} of {pagination.total} bookings
+              {selectedIds.length
+                ? ` · ${selectedIds.length} selected`
+                : ""}
+            </span>
+            <div className="bk2-pagination-controls">
+              <select
+                className="bk2-page-size"
+                onChange={(e) => setLimit(Number(e.target.value))}
+                value={limit}
+              >
+                <option value={10}>10 / page</option>
+                <option value={20}>20 / page</option>
+                <option value={50}>50 / page</option>
+              </select>
+              <button
+                className="bk2-page-btn"
+                disabled={page <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                type="button"
+              >
+                ‹ Prev
+              </button>
+              {pageNumbers.map((n, i) =>
+                n === "…" ? (
+                  <span className="bk2-page-ellipsis" key={`e-${i}`}>
+                    …
+                  </span>
+                ) : (
+                  <button
+                    className={`bk2-page-btn ${n === page ? "active" : ""}`}
+                    key={n}
+                    onClick={() => setPage(n)}
+                    type="button"
+                  >
+                    {n}
+                  </button>
+                )
+              )}
+              <button
+                className="bk2-page-btn"
+                disabled={page >= (pagination.pages || 1)}
+                onClick={() =>
+                  setPage((p) => Math.min(pagination.pages || 1, p + 1))
+                }
+                type="button"
+              >
+                Next ›
+              </button>
+            </div>
+          </div>
+        ) : null}
+      </div>
+
       <BookingDetailPanel
         bookingId={panelBookingId}
         onClose={() => setPanelBookingId(null)}
       />
-      {showCreateModal && <CreateBookingModal onClose={() => setShowCreateModal(false)} />}
-      </div>
+      {showCreateModal && (
+        <CreateBookingModal
+          onClose={() => setShowCreateModal(false)}
+          onCreated={(msg) => showToast(msg)}
+        />
+      )}
+      {modal && (
+        <BookingActionModal
+          action={modal.action}
+          booking={modal.booking}
+          onClose={() => setModal(null)}
+          onDone={(msg) => showToast(msg)}
+        />
+      )}
+      {toast ? <div className="bk2-toast">{toast}</div> : null}
     </section>
   );
 }
