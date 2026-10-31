@@ -1295,3 +1295,24 @@ export async function createAdminProvider(payload: {
   );
   return response.data.data;
 }
+
+export async function updateAdminProviderProfile(
+  providerId: string,
+  payload: {
+    name?: string;
+    phoneNumber?: string;
+    serviceArea?: string;
+    providerAddress?: {
+      streetAddress?: string;
+      city?: string;
+      country?: string;
+      postcode?: string;
+    };
+  }
+) {
+  const response = await api.patch<ApiEnvelope<AdminUser>>(
+    `/admin/providers/${providerId}/profile`,
+    payload
+  );
+  return response.data.data;
+}

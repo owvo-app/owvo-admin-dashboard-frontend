@@ -38,6 +38,7 @@ import {
   deleteProviderNote,
   sendProviderMessage,
   createAdminProvider,
+  updateAdminProviderProfile,
   getWashers,
   updateAdminAddon,
   updateAdminMe,
@@ -1425,6 +1426,12 @@ function ActivityLogDownloadButton({ logs, rangeLabel }: { logs: ActivityLog[]; 
 // washer detail page. The ••• action menu arrives in Step 3.
 type ProviderListItem = AdminUser & {
   accountStatus?: string;
+  providerAddress?: {
+    streetAddress?: string;
+    city?: string;
+    country?: string;
+    postcode?: string;
+  };
   location?: { type?: string; coordinates?: number[] };
   preferredServices?: Array<
     | string
@@ -1819,6 +1826,117 @@ function ProviderMessageModal({
   );
 }
 
+
+// ─── Step 7 fix: Edit Provider modal (menu + panel footer dono use karte) ───
+function EditProviderModal({
+  provider,
+  onClose,
+  onSaved,
+}: {
+  provider: ProviderListItem;
+  onClose: () => void;
+  onSaved: (text: string) => void;
+}) {
+  const queryClient = useQueryClient();
+  const [form, setForm] = useState({
+    name: provider.name || "",
+    phoneNumber: provider.phoneNumber || "",
+    serviceArea: provider.serviceArea || "",
+    streetAddress: provider.providerAddress?.streetAddress || "",
+    city: provider.providerAddress?.city || "",
+    postcode: provider.providerAddress?.postcode || "",
+    country: provider.providerAddress?.country || "",
+  });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const set =
+    (key: keyof typeof form) => (event: ChangeEvent<HTMLInputElement>) =>
+      setForm((prev) => ({ ...prev, [key]: event.target.value }));
+  const submit = async () => {
+    if (!form.name.trim()) {
+      setError("Full name is required.");
+      return;
+    }
+    if (!form.phoneNumber.trim()) {
+      setError("Phone number is required.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    try {
+      await updateAdminProviderProfile(provider._id, {
+        name: form.name.trim(),
+        phoneNumber: form.phoneNumber.trim(),
+        serviceArea: form.serviceArea.trim(),
+        providerAddress: {
+          streetAddress: form.streetAddress.trim(),
+          city: form.city.trim(),
+          postcode: form.postcode.trim(),
+          country: form.country.trim(),
+        },
+      });
+      await queryClient.invalidateQueries({ queryKey: ["washers"] });
+      await queryClient.invalidateQueries({
+        queryKey: ["provider-detail", provider._id],
+      });
+      onSaved(`Provider ${form.name.trim()} updated.`);
+    } catch (err) {
+      setError(
+        (err as { response?: { data?: { message?: string } } })?.response?.data
+          ?.message ||
+          "Changes could not be saved. Check your connection and try again."
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="prov-modal-overlay" onClick={onClose}>
+      <div className="prov-modal" onClick={(event) => event.stopPropagation()}>
+        <h3>Edit Provider</h3>
+        <p>Basic profile details for {provider.name || "this provider"}.</p>
+        <label className="prov-field">
+          <span>Full name</span>
+          <input className="prov-input" value={form.name} onChange={set("name")} autoComplete="off" />
+        </label>
+        <label className="prov-field">
+          <span>Phone number</span>
+          <input className="prov-input" value={form.phoneNumber} onChange={set("phoneNumber")} autoComplete="off" />
+        </label>
+        <label className="prov-field">
+          <span>Service area</span>
+          <input className="prov-input" value={form.serviceArea} onChange={set("serviceArea")} placeholder="e.g. Birmingham" autoComplete="off" />
+        </label>
+        <label className="prov-field">
+          <span>Street address</span>
+          <input className="prov-input" value={form.streetAddress} onChange={set("streetAddress")} autoComplete="off" />
+        </label>
+        <label className="prov-field">
+          <span>City</span>
+          <input className="prov-input" value={form.city} onChange={set("city")} autoComplete="off" />
+        </label>
+        <label className="prov-field">
+          <span>Postcode</span>
+          <input className="prov-input" value={form.postcode} onChange={set("postcode")} autoComplete="off" />
+        </label>
+        <label className="prov-field">
+          <span>Country</span>
+          <input className="prov-input" value={form.country} onChange={set("country")} autoComplete="off" />
+        </label>
+        {error ? <div className="prov-modal-error">{error}</div> : null}
+        <div className="prov-modal-actions">
+          <button className="prov-btn prov-btn-ghost" type="button" disabled={busy} onClick={onClose}>
+            Cancel
+          </button>
+          <button className="prov-btn prov-btn-primary" type="button" disabled={busy} onClick={submit}>
+            {busy ? <Loader2 className="prov-spin" size={14} /> : <Save size={14} />} Save Changes
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Step 7: Add Provider modal ─────────────────────────────────────────────
 function AddProviderModal({
   onClose,
@@ -1973,6 +2091,9 @@ function ProviderDetailPanel({
   onClose,
   onAction,
   onMessage,
+  onEdit,
+  tab,
+  onTabChange,
 }: {
   provider: ProviderListItem;
   displayId: string;
@@ -1980,8 +2101,10 @@ function ProviderDetailPanel({
   onClose: () => void;
   onAction: (kind: ProviderActionKind, provider: ProviderListItem) => void;
   onMessage: (provider: ProviderListItem) => void;
+  onEdit: (provider: ProviderListItem) => void;
+  tab: string;
+  onTabChange: (tab: string) => void;
 }) {
-  const [tab, setTab] = useState("overview");
   const [mapOpen, setMapOpen] = useState(false);
   const detailQuery = useQuery({
     queryKey: ["provider-detail", provider._id],
@@ -2312,7 +2435,7 @@ function ProviderDetailPanel({
               key={item.key}
               className={tab === item.key ? "active" : ""}
               type="button"
-              onClick={() => setTab(item.key)}
+              onClick={() => onTabChange(item.key)}
             >
               {item.label}
             </button>
@@ -2536,7 +2659,7 @@ function ProviderDetailPanel({
                 <button
                   className="prov-link-button"
                   type="button"
-                  onClick={() => setTab("services")}
+                  onClick={() => onTabChange("services")}
                 >
                   View Services
                 </button>
@@ -3160,7 +3283,7 @@ function ProviderDetailPanel({
           <button
             className="prov-btn prov-btn-ghost"
             type="button"
-            onClick={() => (window.location.href = `/washers/${provider._id}`)}
+            onClick={() => onEdit(provider)}
           >
             <Pencil size={14} /> Edit Profile
           </button>
@@ -3236,6 +3359,14 @@ export function WashersPageContent() {
   const [pageSize, setPageSize] = useState(10);
   const [panelId, setPanelId] = useState<string | null>(null);
   const [addOpen, setAddOpen] = useState(false);
+  const [panelTab, setPanelTab] = useState("overview");
+  const [editProvider, setEditProvider] = useState<ProviderListItem | null>(
+    null
+  );
+  const openPanel = (provider: ProviderListItem, tab: string = "overview") => {
+    setPanelTab(tab);
+    setPanelId(provider._id);
+  };
   const [messageProvider, setMessageProvider] =
     useState<ProviderListItem | null>(null);
 
@@ -3716,7 +3847,7 @@ export function WashersPageContent() {
                   className={`clickable-row${
                     selected.includes(washer._id) ? " prov-row-selected" : ""
                   }`}
-                  onClick={() => setPanelId(washer._id)}
+                  onClick={() => openPanel(washer)}
                 >
                   <td
                     className="prov-check-cell"
@@ -3916,7 +4047,7 @@ export function WashersPageContent() {
             type="button"
             onClick={() => {
               setMenuFor(null);
-              setPanelId(menuProvider._id);
+              openPanel(menuProvider);
             }}
           >
             <Eye size={15} /> View Details
@@ -3924,28 +4055,40 @@ export function WashersPageContent() {
           <button
             className="prov-menu-item"
             type="button"
-            onClick={() => (window.location.href = `/washers/${menuProvider._id}`)}
+            onClick={() => {
+              setMenuFor(null);
+              setEditProvider(menuProvider);
+            }}
           >
             <Pencil size={15} /> Edit Provider
           </button>
           <button
             className="prov-menu-item"
             type="button"
-            onClick={() => (window.location.href = "/provider-verification")}
+            onClick={() => {
+              setMenuFor(null);
+              openPanel(menuProvider, "documents");
+            }}
           >
             <ShieldCheck size={15} /> Verify Documents
           </button>
           <button
             className="prov-menu-item"
             type="button"
-            onClick={() => (window.location.href = `/washers/${menuProvider._id}`)}
+            onClick={() => {
+              setMenuFor(null);
+              openPanel(menuProvider, "services");
+            }}
           >
             <Settings size={15} /> Manage Services
           </button>
           <button
             className="prov-menu-item"
             type="button"
-            onClick={() => (window.location.href = `/washers/${menuProvider._id}`)}
+            onClick={() => {
+              setMenuFor(null);
+              openPanel(menuProvider, "earnings");
+            }}
           >
             <BadgePoundSterling size={15} /> View Earnings
           </button>
@@ -4146,6 +4289,20 @@ export function WashersPageContent() {
           onClose={() => setPanelId(null)}
           onAction={openAction}
           onMessage={(p) => setMessageProvider(p)}
+          onEdit={(p) => setEditProvider(p)}
+          tab={panelTab}
+          onTabChange={setPanelTab}
+        />
+      ) : null}
+
+      {editProvider ? (
+        <EditProviderModal
+          provider={editProvider}
+          onClose={() => setEditProvider(null)}
+          onSaved={(text) => {
+            setEditProvider(null);
+            setToast({ type: "success", text });
+          }}
         />
       ) : null}
 
