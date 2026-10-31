@@ -1509,3 +1509,16 @@ export async function sendCustomerResetPassword(customerId: string) {
   );
   return response.data.data;
 }
+
+// ─── Customers fix: detail response me map location (live / saved / booking)
+export interface AdminCustomerMapLocation {
+  lat: number;
+  lng: number;
+  source: "live" | "profile" | "booking";
+  updatedAt?: string | null;
+}
+
+export interface AdminCustomerDetail {
+  latestBookingAddress?: string;
+  mapLocation?: AdminCustomerMapLocation | null;
+}

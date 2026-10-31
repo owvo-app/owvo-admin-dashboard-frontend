@@ -6390,3 +6390,47 @@ a {
     width: 100%;
   }
 }
+/* ─── Customers fix: address autocomplete ────────────────────────────────── */
+.cust-addr-wrap {
+  position: relative;
+}
+.cust-places-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 90;
+  background: #fff;
+  border: 1px solid #eaecf0;
+  border-radius: 12px;
+  box-shadow: 0 12px 28px rgba(16, 24, 40, 0.16);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  max-height: 260px;
+  overflow-y: auto;
+}
+.cust-places-dropdown button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 9px 10px;
+  border-radius: 8px;
+  font-size: 13.5px;
+  color: #101828;
+  cursor: pointer;
+  font-family: inherit;
+}
+.cust-places-dropdown button:hover {
+  background: #f9fafb;
+}
+.cust-field-hint {
+  display: block;
+  margin-top: 6px;
+  font-size: 12px;
+  font-weight: 400;
+  color: #667085;
+}

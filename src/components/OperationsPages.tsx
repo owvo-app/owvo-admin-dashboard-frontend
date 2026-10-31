@@ -42,6 +42,7 @@ import {
   sendCustomerResetPassword,
   AdminCustomerDetail,
   AdminCustomerDetailBooking,
+  AdminCustomerMapLocation,
   CustomerNoteItem,
   getDashboardSettings,
   getStaffAccounts,
@@ -4375,6 +4376,7 @@ type CustomerListItem = AdminUser & {
   totalBookings?: number;
   totalSpent?: number;
   residentialAddress?: string;
+  latestAddress?: string;
   dateOfBirth?: string;
   location?: { type?: string; coordinates?: number[] };
   verificationInfo?: { verified?: boolean };
@@ -4502,6 +4504,174 @@ function CustomerMessageModal({
   );
 }
 
+// ─── Customers fix: address autocomplete (Google Places) ────────────────────
+// Postcode/address likhne par suggestions; kisi par click karne se pura
+// address box me bhar jata hai AUR us ki location (lat/lng) bhi milti hai —
+// location backend me customer ki profile par save hoti hai.
+let customerPlacesPromise: Promise<void> | null = null;
+function loadCustomerPlacesScript(apiKey: string): Promise<void> {
+  if (customerPlacesPromise) return customerPlacesPromise;
+  customerPlacesPromise = new Promise((resolve, reject) => {
+    if (typeof window === "undefined") return resolve();
+    const w = window as unknown as {
+      google?: { maps?: { places?: unknown } };
+    };
+    if (w.google?.maps?.places) return resolve();
+    const script = document.createElement("script");
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places&region=GB`;
+    script.async = true;
+    script.defer = true;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error("Failed to load Google Places"));
+    document.head.appendChild(script);
+  });
+  return customerPlacesPromise;
+}
+
+function CustomerAddressAutocomplete({
+  value,
+  onChange,
+  onCoords,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  onCoords: (coords: { lat: number; lng: number } | null) => void;
+}) {
+  const [ready, setReady] = useState(false);
+  const [loadError, setLoadError] = useState("");
+  const [suggestions, setSuggestions] = useState<
+    Array<{ description: string; placeId: string }>
+  >([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [searching, setSearching] = useState(false);
+  const suppressNextFetch = useRef(false);
+
+  useEffect(() => {
+    const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+    if (!apiKey) {
+      setLoadError("Address suggestions are not configured.");
+      return;
+    }
+    let cancelled = false;
+    loadCustomerPlacesScript(apiKey)
+      .then(() => {
+        if (!cancelled) setReady(true);
+      })
+      .catch(() => {
+        if (!cancelled) setLoadError("Address suggestions could not be loaded.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (suppressNextFetch.current) {
+      suppressNextFetch.current = false;
+      return;
+    }
+    if (!ready || value.trim().length < 3) {
+      setSuggestions([]);
+      return;
+    }
+    const timer = setTimeout(() => {
+      const g = (window as unknown as { google?: any }).google;
+      if (!g?.maps?.places) return;
+      setSearching(true);
+      const service = new g.maps.places.AutocompleteService();
+      service.getPlacePredictions(
+        {
+          input: value,
+          componentRestrictions: { country: "gb" },
+          types: ["geocode"],
+        },
+        (
+          predictions: Array<{ description: string; place_id: string }> | null
+        ) => {
+          setSearching(false);
+          setSuggestions(
+            (predictions || []).map((p) => ({
+              description: p.description,
+              placeId: p.place_id,
+            }))
+          );
+          setShowSuggestions(true);
+        }
+      );
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [value, ready]);
+
+  const pick = (suggestion: { description: string; placeId: string }) => {
+    suppressNextFetch.current = true;
+    setShowSuggestions(false);
+    setSuggestions([]);
+    onChange(suggestion.description);
+    const g = (window as unknown as { google?: any }).google;
+    if (!g?.maps?.places) {
+      onCoords(null);
+      return;
+    }
+    const detailsService = new g.maps.places.PlacesService(
+      document.createElement("div")
+    );
+    detailsService.getDetails(
+      { placeId: suggestion.placeId, fields: ["formatted_address", "geometry"] },
+      (place: any, status: string) => {
+        if (status === "OK" && place?.geometry?.location) {
+          suppressNextFetch.current = true;
+          onChange(place.formatted_address || suggestion.description);
+          onCoords({
+            lat: place.geometry.location.lat(),
+            lng: place.geometry.location.lng(),
+          });
+        } else {
+          onCoords(null);
+        }
+      }
+    );
+  };
+
+  return (
+    <div className="cust-addr-wrap">
+      <input
+        className="prov-input"
+        value={value}
+        placeholder="Start typing a postcode or address..."
+        autoComplete="off"
+        onChange={(event) => {
+          onChange(event.target.value);
+          onCoords(null);
+        }}
+        onFocus={() => {
+          if (suggestions.length > 0) setShowSuggestions(true);
+        }}
+        onBlur={() => setTimeout(() => setShowSuggestions(false), 200)}
+      />
+      {showSuggestions && suggestions.length > 0 ? (
+        <div className="cust-places-dropdown">
+          {suggestions.map((s) => (
+            <button
+              key={s.placeId}
+              type="button"
+              onMouseDown={(event) => {
+                event.preventDefault();
+                pick(s);
+              }}
+            >
+              <MapPin size={13} /> {s.description}
+            </button>
+          ))}
+        </div>
+      ) : null}
+      {searching ? (
+        <small className="cust-field-hint">Searching addresses...</small>
+      ) : null}
+      {loadError ? <small className="cust-field-hint">{loadError}</small> : null}
+    </div>
+  );
+}
+
 function AddCustomerModal({
   onClose,
   onCreated,
@@ -4517,6 +4687,9 @@ function AddCustomerModal({
   const [password, setPassword] = useState("");
   const [dateOfBirth, setDateOfBirth] = useState("");
   const [address, setAddress] = useState("");
+  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(
+    null
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const submit = async () => {
@@ -4539,14 +4712,19 @@ function AddCustomerModal({
     setBusy(true);
     setError("");
     try {
-      await createAdminCustomer({
+      const payload = {
         name: `${firstName.trim()} ${lastName.trim()}`.trim(),
         email: email.trim(),
         phoneNumber: phoneNumber.trim(),
         password,
         residentialAddress: address.trim() || undefined,
         dateOfBirth: dateOfBirth || undefined,
-      });
+        ...(coords ? { latitude: coords.lat, longitude: coords.lng } : {}),
+      } as Parameters<typeof createAdminCustomer>[0] & {
+        latitude?: number;
+        longitude?: number;
+      };
+      await createAdminCustomer(payload);
       await queryClient.invalidateQueries({ queryKey: ["customers"] });
       onCreated("Customer created. They can log in to the app right away.");
     } catch (err) {
@@ -4628,12 +4806,14 @@ function AddCustomerModal({
           </label>
           <label className="prov-field">
             <span>Address</span>
-            <input
-              className="prov-input"
+            <CustomerAddressAutocomplete
               value={address}
-              onChange={(event) => setAddress(event.target.value)}
-              placeholder="Street, City, Postcode"
+              onChange={setAddress}
+              onCoords={setCoords}
             />
+            <small className="cust-field-hint">
+              Pick an address from the suggestions — its location is saved too.
+            </small>
           </label>
         </div>
         {error ? <div className="prov-modal-error">{error}</div> : null}
@@ -4679,6 +4859,9 @@ function EditCustomerModal({
     customer.dateOfBirth ? customer.dateOfBirth.slice(0, 10) : ""
   );
   const [address, setAddress] = useState(customer.residentialAddress || "");
+  const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(
+    null
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const status = customerDisplayStatus(customer);
@@ -4698,13 +4881,18 @@ function EditCustomerModal({
     setBusy(true);
     setError("");
     try {
-      await updateAdminCustomerProfile(customer._id, {
+      const payload = {
         name: `${firstName.trim()} ${lastName.trim()}`.trim(),
         email: email.trim(),
         phoneNumber: phoneNumber.trim(),
         dateOfBirth: dateOfBirth || "",
         residentialAddress: address.trim(),
-      });
+        ...(coords ? { latitude: coords.lat, longitude: coords.lng } : {}),
+      } as Parameters<typeof updateAdminCustomerProfile>[1] & {
+        latitude?: number;
+        longitude?: number;
+      };
+      await updateAdminCustomerProfile(customer._id, payload);
       await queryClient.invalidateQueries({ queryKey: ["customers"] });
       await queryClient.invalidateQueries({
         queryKey: ["customer-detail", customer._id],
@@ -4781,12 +4969,14 @@ function EditCustomerModal({
         <h4 className="cust-form-section">Address</h4>
         <label className="prov-field">
           <span>Residential Address</span>
-          <input
-            className="prov-input"
+          <CustomerAddressAutocomplete
             value={address}
-            onChange={(event) => setAddress(event.target.value)}
-            placeholder="Street, City, Postcode"
+            onChange={setAddress}
+            onCoords={setCoords}
           />
+          <small className="cust-field-hint">
+            Pick an address from the suggestions — its location is saved too.
+          </small>
         </label>
 
         <h4 className="cust-form-section">Account Settings</h4>
@@ -4835,24 +5025,47 @@ function EditCustomerModal({
   );
 }
 
-// ─── Customers: View on Map popup (single customer pin) ─────────────────────
+// ─── Customers: View on Map popup ───────────────────────────────────────────
+// Pin ki tarteeb backend detail endpoint tay karta hai: (1) active booking ki
+// LIVE location, (2) profile par saved address location, (3) latest booking
+// ke address ki location. Har pin ke sath saaf label ata hai.
 function CustomerMapModal({
   customer,
+  mapLocation,
+  bookingAddress,
   onClose,
 }: {
   customer: CustomerListItem;
+  mapLocation?: AdminCustomerMapLocation | null;
+  bookingAddress?: string;
   onClose: () => void;
 }) {
   const mapRef = useRef<HTMLDivElement | null>(null);
   const [mapError, setMapError] = useState("");
-  const coords = customer.location?.coordinates;
-  const hasCoords =
-    Array.isArray(coords) &&
-    coords.length === 2 &&
-    (coords[0] !== 0 || coords[1] !== 0);
+  const fallbackCoords = customer.location?.coordinates;
+  const effective: AdminCustomerMapLocation | null = mapLocation
+    ? mapLocation
+    : Array.isArray(fallbackCoords) &&
+        fallbackCoords.length === 2 &&
+        (fallbackCoords[0] !== 0 || fallbackCoords[1] !== 0)
+      ? {
+          lat: fallbackCoords[1],
+          lng: fallbackCoords[0],
+          source: "profile",
+          updatedAt: null,
+        }
+      : null;
+  const hasCoords = Boolean(effective);
+  const sourceLabel =
+    effective?.source === "live"
+      ? "Live location"
+      : effective?.source === "profile"
+        ? "Saved address location"
+        : "Latest booking location";
+  const pinColor = effective?.source === "live" ? "#22a355" : "#f6b300";
 
   useEffect(() => {
-    if (!hasCoords) return;
+    if (!effective) return;
     const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
     if (!apiKey) {
       setMapError("Google Maps is not configured for this dashboard.");
@@ -4861,11 +5074,10 @@ function CustomerMapModal({
     let cancelled = false;
     loadGoogleMapsScript(apiKey)
       .then(() => {
-        if (cancelled || !mapRef.current) return;
-        const googleMaps = (
-          window as unknown as { google: { maps: any } }
-        ).google.maps;
-        const position = { lat: coords[1], lng: coords[0] };
+        if (cancelled || !mapRef.current || !effective) return;
+        const googleMaps = (window as unknown as { google: { maps: any } })
+          .google.maps;
+        const position = { lat: effective.lat, lng: effective.lng };
         const map = new googleMaps.Map(mapRef.current, {
           center: position,
           zoom: 13,
@@ -4879,20 +5091,22 @@ function CustomerMapModal({
           icon: {
             path: googleMaps.SymbolPath.CIRCLE,
             scale: 11,
-            fillColor: "#f6b300",
+            fillColor: pinColor,
             fillOpacity: 1,
             strokeColor: "#ffffff",
             strokeWeight: 3,
           },
         });
         const info = new googleMaps.InfoWindow({
-          content: `<strong>${customer.name || "Customer"}</strong>`,
+          content: `<strong>${customer.name || "Customer"}</strong><br/>${sourceLabel}`,
         });
         info.open(map, marker);
       })
       .catch(() => {
         if (!cancelled) {
-          setMapError("The map could not be loaded. Check your connection and try again.");
+          setMapError(
+            "The map could not be loaded. Check your connection and try again."
+          );
         }
       });
     return () => {
@@ -4903,14 +5117,15 @@ function CustomerMapModal({
 
   return (
     <div className="prov-map-overlay" onClick={onClose}>
-      <div
-        className="prov-map-card"
-        onClick={(event) => event.stopPropagation()}
-      >
+      <div className="prov-map-card" onClick={(event) => event.stopPropagation()}>
         <div className="prov-map-head">
           <div>
             <h3>{customer.name || "Customer"}</h3>
-            <p>{customer.residentialAddress || "Address not provided"}</p>
+            <p>
+              {customer.residentialAddress ||
+                bookingAddress ||
+                "Address not provided"}
+            </p>
           </div>
           <button
             className="prov-map-close"
@@ -4929,19 +5144,21 @@ function CustomerMapModal({
           )
         ) : (
           <div className="prov-map-error">
-            No saved location for this customer yet. A location appears here
-            once the customer uses the app with location enabled.
+            No location available for this customer yet. A location appears
+            here once their address is saved or they make a booking.
           </div>
         )}
-        <div className="prov-map-foot">
-          <span className="prov-map-status">
-            <span
-              className="cust-map-dot"
-              style={{ background: "#f6b300" }}
-            />
-            This customer
-          </span>
-        </div>
+        {hasCoords ? (
+          <div className="prov-map-foot">
+            <span className="prov-map-status">
+              <span className="cust-map-dot" style={{ background: pinColor }} />
+              {sourceLabel}
+              {effective?.source === "live" && effective?.updatedAt
+                ? ` • updated ${relativeDate(effective.updatedAt)}`
+                : ""}
+            </span>
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -5377,7 +5594,11 @@ function CustomerDetailPanel({
                     <MapPin size={14} /> Address
                   </span>
                   <strong>
-                    {d?.residentialAddress || customer.residentialAddress || "Not provided"}
+                    {d?.residentialAddress ||
+                      customer.residentialAddress ||
+                      (detail.latestBookingAddress
+                        ? `${detail.latestBookingAddress} (latest booking)`
+                        : "Not provided")}
                   </strong>
                 </div>
               </div>
@@ -5700,7 +5921,12 @@ function CustomerDetailPanel({
         ) : null}
       </aside>
       {mapOpen ? (
-        <CustomerMapModal customer={customer} onClose={() => setMapOpen(false)} />
+        <CustomerMapModal
+          customer={customer}
+          mapLocation={detail?.mapLocation}
+          bookingAddress={detail?.latestBookingAddress}
+          onClose={() => setMapOpen(false)}
+        />
       ) : null}
     </div>
   );
@@ -5894,8 +6120,11 @@ export function CustomersPageContent() {
       Array.from(
         new Set(
           customers
-            .map((customer) => customer.residentialAddress?.trim())
-            .filter(Boolean) as string[]
+            .map((customer) =>
+              (customer.residentialAddress?.trim() ||
+                customer.latestAddress?.trim()) as string
+            )
+            .filter(Boolean)
         )
       ).sort(),
     [customers]
@@ -5926,7 +6155,12 @@ export function CustomersPageContent() {
     return customers.filter((customer) => {
       if (statusFilter !== "all" && customerDisplayStatus(customer) !== statusFilter)
         return false;
-      if (locationFilter !== "all" && (customer.residentialAddress || "") !== locationFilter)
+      if (
+        locationFilter !== "all" &&
+        (customer.residentialAddress?.trim() ||
+          customer.latestAddress?.trim() ||
+          "") !== locationFilter
+      )
         return false;
       if (joinedFilter !== "all" && customer.createdAt) {
         const joined = new Date(customer.createdAt);
