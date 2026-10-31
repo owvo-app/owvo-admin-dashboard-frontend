@@ -5065,6 +5065,17 @@ function CustomerMapModal({
   const pinColor = effective?.source === "live" ? "#22a355" : "#f6b300";
 
   useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.stopPropagation();
+        onClose();
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  useEffect(() => {
     if (!effective) return;
     const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
     if (!apiKey) {
@@ -5080,27 +5091,31 @@ function CustomerMapModal({
         const position = { lat: effective.lat, lng: effective.lng };
         const map = new googleMaps.Map(mapRef.current, {
           center: position,
-          zoom: 13,
+          zoom: 14,
           mapTypeControl: false,
           streetViewControl: false,
         });
+        const pinSvg = `<svg xmlns='http://www.w3.org/2000/svg' width='38' height='48' viewBox='0 0 38 48'><path d='M19 1C9.6 1 2 8.6 2 18c0 11.5 15.4 28.2 15.9 28.7a1.6 1.6 0 0 0 2.2 0C20.6 46.2 36 29.5 36 18 36 8.6 28.4 1 19 1z' fill='${pinColor}' stroke='#ffffff' stroke-width='2.5'/><circle cx='19' cy='18' r='7' fill='#ffffff'/></svg>`;
         const marker = new googleMaps.Marker({
           position,
           map,
           title: customer.name || "Customer",
           icon: {
-            path: googleMaps.SymbolPath.CIRCLE,
-            scale: 11,
-            fillColor: pinColor,
-            fillOpacity: 1,
-            strokeColor: "#ffffff",
-            strokeWeight: 3,
+            url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(pinSvg)}`,
+            scaledSize: new googleMaps.Size(38, 48),
+            anchor: new googleMaps.Point(19, 46),
           },
         });
         const info = new googleMaps.InfoWindow({
           content: `<strong>${customer.name || "Customer"}</strong><br/>${sourceLabel}`,
         });
         info.open(map, marker);
+        // Modal khulne ke baad map ko refresh karna zaroori hai — warna
+        // Google ki tiles aadhi/grey reh jati hain.
+        window.setTimeout(() => {
+          googleMaps.event.trigger(map, "resize");
+          map.setCenter(position);
+        }, 300);
       })
       .catch(() => {
         if (!cancelled) {
@@ -5116,7 +5131,13 @@ function CustomerMapModal({
   }, []);
 
   return (
-    <div className="prov-map-overlay" onClick={onClose}>
+    <div
+      className="prov-map-overlay"
+      onClick={(event) => {
+        event.stopPropagation();
+        onClose();
+      }}
+    >
       <div className="prov-map-card" onClick={(event) => event.stopPropagation()}>
         <div className="prov-map-head">
           <div>
@@ -5258,11 +5279,11 @@ function CustomerDetailPanel({
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape" && !mapOpen) onClose();
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, [onClose, mapOpen]);
 
   const status = customerDisplayStatus(customer);
   const photoUrl = resolveReportPhotoUrl(customer.photo?.url);
