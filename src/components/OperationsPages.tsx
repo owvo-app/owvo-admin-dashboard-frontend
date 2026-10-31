@@ -26,6 +26,10 @@ import {
   getAdminNotifications,
   getAdminPayments,
   getAdminPayouts,
+  getAdminTransactions,
+  getAdminTransactionDetail,
+  getAdminReconciliation,
+  createAdminTransactionNote,
   getAdminReportPhotoBlob,
   getAdminReports,
   getAdminServicesPricing,
@@ -120,6 +124,22 @@ import {
 } from "lucide-react";
 import { ChangeEvent, FormEvent, MouseEvent as ReactMouseEvent, useEffect, useMemo, useRef, useState } from "react";
 import { io } from "socket.io-client";
+import type { AdminTransactionRow } from "@/lib/admin-api";
+import {
+  IssueRefundModal,
+  MarkPayoutFailedModal,
+  PayAvatar,
+  PAY_STATUS_LABELS,
+  PayManuallyModal,
+  ReceiptModal,
+  ReconciliationModal,
+  RefundReviewModal,
+  RetryPayoutModal,
+  TransactionNoteModal,
+  payErrMsg,
+  payFmtDate,
+  payFmtDateTime,
+} from "./payments/PaymentsModals";
 
 const menuOptions = [
   { key: "dashboard", label: "Dashboard" },
@@ -7047,204 +7067,997 @@ export function EarningsPageContent() {
 export function PayoutsPaymentsPageContent() {
   const queryClient = useQueryClient();
   const dateRange = useDashboardDateRange();
-  const paymentsQuery = useQuery({
-    queryKey: ["admin-payments", dateRange.queryKey],
-    queryFn: () => getAdminPayments("all", dateRange.query),
+  const user = useDashboardUser();
+
+  const [typeFilter, setTypeFilter] = useState<
+    "all" | "payment" | "payout" | "refund" | "failed"
+  >("all");
+  const [statusFilter, setStatusFilter] = useState("");
+  const [searchInput, setSearchInput] = useState("");
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [selected, setSelected] = useState<AdminTransactionRow | null>(null);
+  const [panelTab, setPanelTab] = useState<
+    "overview" | "booking" | "details" | "notes" | "activity"
+  >("overview");
+  const [menu, setMenu] = useState<{
+    row: AdminTransactionRow;
+    x: number;
+    y: number;
+  } | null>(null);
+  const [modal, setModal] = useState<
+    | { kind: "refund"; row: AdminTransactionRow }
+    | { kind: "review"; row: AdminTransactionRow }
+    | { kind: "paymanually"; row: AdminTransactionRow }
+    | { kind: "retry"; row: AdminTransactionRow }
+    | { kind: "markfailed"; row: AdminTransactionRow }
+    | { kind: "note"; row: AdminTransactionRow }
+    | { kind: "receipt"; row: AdminTransactionRow }
+    | { kind: "reconciliation" }
+    | null
+  >(null);
+  const [noteText, setNoteText] = useState("");
+  const [noteVisibility, setNoteVisibility] = useState<"internal" | "customer">(
+    "internal"
+  );
+  const [noteError, setNoteError] = useState("");
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setSearch(searchInput.trim());
+      setPage(1);
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
+
+  useEffect(() => {
+    setPanelTab("overview");
+    setNoteText("");
+    setNoteError("");
+  }, [selected?.id]);
+
+  const effectiveType = typeFilter === "failed" ? "all" : typeFilter;
+  const effectiveStatus = typeFilter === "failed" ? "failed" : statusFilter;
+
+  const txnQuery = useQuery({
+    queryKey: [
+      "admin-transactions",
+      effectiveType,
+      effectiveStatus,
+      search,
+      page,
+      dateRange.queryKey,
+    ],
+    queryFn: () =>
+      getAdminTransactions({
+        ...dateRange.query,
+        type: effectiveType,
+        status: effectiveStatus || undefined,
+        search: search || undefined,
+        page,
+        limit: 20,
+      }),
   });
-  const payoutsQuery = useQuery({
-    queryKey: ["admin-payouts", dateRange.queryKey],
-    queryFn: () => getAdminPayouts(dateRange.query),
+
+  const reconQuery = useQuery({
+    queryKey: ["admin-reconciliation"],
+    queryFn: () => getAdminReconciliation(),
+    staleTime: 60_000,
+    retry: false,
   });
-  const createPayoutMutation = useMutation({
-    mutationFn: (balance: NonNullable<NonNullable<typeof payoutsQuery.data>["providerBalances"]>[number]) =>
-      createAdminPayout({
-        providerId: balance.provider?._id || "",
-        amount: balance.payableAmount,
-        currency: "GBP",
-        status: "paid",
-        manualAdjustmentReason: `Manual provider salary paid by admin for ${dateRange.label}`,
+
+  const detailQuery = useQuery({
+    queryKey: ["admin-transaction-detail", selected?.sourceType, selected?.id],
+    queryFn: () =>
+      getAdminTransactionDetail(selected!.sourceType, selected!.id),
+    enabled: !!selected,
+  });
+
+  // Live refresh — payout ya booking ki tabdeeli par list taza.
+  useEffect(() => {
+    if (!user?._id) return;
+    const socket = io(SOCKET_URL, getDashboardSocketOptions(user._id));
+    const refresh = () => {
+      queryClient.invalidateQueries({ queryKey: ["admin-transactions"] });
+    };
+    socket.on("admin_payout_updated", refresh);
+    socket.on("admin_booking_created", refresh);
+    socket.on("admin_booking_status_updated", refresh);
+    return () => {
+      socket.off("admin_payout_updated", refresh);
+      socket.off("admin_booking_created", refresh);
+      socket.off("admin_booking_status_updated", refresh);
+      socket.disconnect();
+    };
+  }, [user?._id, queryClient]);
+
+  const noteMutation = useMutation({
+    mutationFn: () =>
+      createAdminTransactionNote({
+        sourceType: selected!.sourceType,
+        sourceId: selected!.id,
+        text: noteText.trim(),
+        visibility: noteVisibility,
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["admin-payouts"] });
-      queryClient.invalidateQueries({ queryKey: ["admin-earnings"] });
-      queryClient.invalidateQueries({ queryKey: ["dashboard-overview"] });
+      setNoteText("");
+      setNoteError("");
+      queryClient.invalidateQueries({ queryKey: ["admin-transaction-detail"] });
     },
+    onError: (err) =>
+      setNoteError(payErrMsg(err, "Could not save the note.")),
   });
-  const stripeBalance = payoutsQuery.data?.stripe?.balance;
-  const stripeCurrency = stripeBalance?.currency || "GBP";
-  const providerBalances = payoutsQuery.data?.providerBalances || [];
-  const manualTotals = payoutsQuery.data?.manualTotals;
-  const paidRecords = (payoutsQuery.data?.payouts || []).filter((payout) => payout.status === "paid");
-  const statusTotals = payoutsQuery.data?.statusTotals || {};
-  const commissionPercent = Math.round((payoutsQuery.data?.commissionRate || 0.25) * 100);
-  const washerPercent = 100 - commissionPercent;
+
+  const data = txnQuery.data;
+  const rows = data?.transactions || [];
+  const counts = data?.counts;
+  const summary = data?.summary;
+  const reconTotal = reconQuery.data?.counts?.total || 0;
+
+  const statusOptions =
+    typeFilter === "payment"
+      ? ["paid", "pending", "failed"]
+      : typeFilter === "payout"
+        ? ["pending", "processing", "paid", "failed"]
+        : typeFilter === "refund"
+          ? [
+              "requested",
+              "under_review",
+              "approved",
+              "processing",
+              "refunded",
+              "rejected",
+              "failed",
+            ]
+          : ["paid", "pending", "processing", "failed", "refunded", "requested"];
+
+  const typePills: { key: typeof typeFilter; label: string; count?: number }[] = [
+    { key: "all", label: "All", count: counts?.all },
+    { key: "payment", label: "Payments", count: counts?.payment },
+    { key: "payout", label: "Payouts", count: counts?.payout },
+    { key: "refund", label: "Refunds", count: counts?.refund },
+    { key: "failed", label: "Failed", count: counts?.failed },
+  ];
+
+  const openMenu = (
+    event: ReactMouseEvent<HTMLButtonElement>,
+    row: AdminTransactionRow
+  ) => {
+    event.stopPropagation();
+    const rect = event.currentTarget.getBoundingClientRect();
+    const menuHeight = 300;
+    const y =
+      rect.bottom + menuHeight > window.innerHeight
+        ? Math.max(8, rect.top - menuHeight)
+        : rect.bottom + 4;
+    setMenu({ row, x: Math.max(8, rect.right - 210), y });
+  };
+
+  const menuActions = (row: AdminTransactionRow) => {
+    const actions: {
+      label: string;
+      danger?: boolean;
+      run: () => void;
+    }[] = [{ label: "View Details", run: () => setSelected(row) }];
+    if (row.sourceType === "payment" && row.status === "paid" && row.bookingId) {
+      actions.push({
+        label: "Issue Refund",
+        run: () => setModal({ kind: "refund", row }),
+      });
+    }
+    if (row.sourceType === "payout" && (row.status === "pending" || row.status === "failed")) {
+      actions.push({
+        label: "Retry Automatic",
+        run: () => setModal({ kind: "retry", row }),
+      });
+      actions.push({
+        label: "Pay Manually",
+        run: () => setModal({ kind: "paymanually", row }),
+      });
+      actions.push({
+        label: "Mark as Failed",
+        danger: true,
+        run: () => setModal({ kind: "markfailed", row }),
+      });
+    }
+    if (
+      row.sourceType === "refund" &&
+      ["requested", "under_review", "approved"].includes(row.status)
+    ) {
+      actions.push({
+        label: "Review Refund",
+        run: () => setModal({ kind: "review", row }),
+      });
+    }
+    if (
+      (row.sourceType !== "refund" && row.status === "paid") ||
+      (row.sourceType === "refund" && row.status === "refunded")
+    ) {
+      actions.push({
+        label: "View Receipt",
+        run: () => setModal({ kind: "receipt", row }),
+      });
+    }
+    actions.push({
+      label: "Add Note",
+      run: () => setModal({ kind: "note", row }),
+    });
+    return actions;
+  };
+
+  const detail = detailQuery.data;
+  const record = (detail?.record || {}) as Record<string, unknown>;
+  const booking = (detail?.booking || null) as Record<string, unknown> | null;
+  const bookingService = (booking?.service || null) as
+    | Record<string, unknown>
+    | null;
+  const bookingUser = (booking?.user || null) as Record<string, unknown> | null;
+  const bookingProvider = (booking?.provider || null) as
+    | Record<string, unknown>
+    | null;
+  const attempts = Array.isArray(record.attempts)
+    ? (record.attempts as Record<string, unknown>[])
+    : [];
+  const detailNotes = detail?.notes || [];
+
+  const partyName = (row: AdminTransactionRow) =>
+    row.sourceType === "payout"
+      ? row.provider?.name || "Provider"
+      : row.customer?.name || "Customer";
+  const partyEmail = (row: AdminTransactionRow) =>
+    row.sourceType === "payout" ? row.provider?.email : row.customer?.email;
 
   return (
     <section className="data-page">
       <div className="data-page-header">
         <div>
-          <h1>Payouts & Payments</h1>
-          <p>Stripe payment records and admin payout tracking from the backend.</p>
+          <h1>Payments &amp; Refunds</h1>
+          <p>
+            Every payment, payout and refund in one ledger — live from Stripe
+            and the backend, nothing estimated.
+          </p>
+        </div>
+        <div className="pay-header-actions">
+          <button
+            type="button"
+            className="pay-btn pay-btn-ghost"
+            onClick={() => setModal({ kind: "reconciliation" })}
+          >
+            <ShieldCheck size={16} /> Reconciliation
+            {reconTotal > 0 ? (
+              <span className="pay-badge">{reconTotal}</span>
+            ) : null}
+          </button>
+          <button
+            type="button"
+            className="pay-btn pay-btn-ghost"
+            onClick={() => {
+              txnQuery.refetch();
+              reconQuery.refetch();
+            }}
+          >
+            <RefreshCw size={16} /> Refresh
+          </button>
         </div>
       </div>
+
+      {reconTotal > 0 ? (
+        <button
+          type="button"
+          className="pay-attention"
+          onClick={() => setModal({ kind: "reconciliation" })}
+        >
+          <TriangleAlert size={16} />
+          {reconTotal} item{reconTotal === 1 ? "" : "s"} need reconciliation —
+          a refund or payout may be stuck. Click to review.
+        </button>
+      ) : null}
+
       <div className="summary-grid">
         <article className="stat-card">
-          <span>Pending Payouts</span>
-          <strong>{money(manualTotals?.unpaidAmount)}</strong>
-          <small>{manualTotals?.unpaidProviders || 0} unpaid washers</small>
+          <span>Total Payments</span>
+          <strong>{money(summary?.totalPayments)}</strong>
+          <small>{dateRange.label} · successful payments</small>
         </article>
         <article className="stat-card">
-          <span>Paid</span>
-          <strong>{money(statusTotals.paid)}</strong>
-          <small>{manualTotals?.paidProviders || 0} settled washers</small>
+          <span>Pending Payouts</span>
+          <strong>{money(summary?.pendingPayouts)}</strong>
+          <small>Queued or processing to providers</small>
+        </article>
+        <article className="stat-card">
+          <span>Refund Requests</span>
+          <strong>{money(summary?.refundRequestsAmount)}</strong>
+          <small>{summary?.refundRequestsCount || 0} awaiting a decision</small>
         </article>
         <article className="stat-card">
           <span>Failed</span>
-          <strong>{money(statusTotals.failed)}</strong>
-        </article>
-        <article className="stat-card">
-          <span>Stripe Available</span>
-          <strong>{moneyWithCurrency(stripeBalance?.available, stripeCurrency)}</strong>
-          <small>
-            Pending {moneyWithCurrency(stripeBalance?.pending, stripeCurrency)} Ãƒâ€šÃ‚Â·{" "}
-            {stripeBalance?.configured ? (stripeBalance?.liveMode ? "Live mode" : "Test mode") : "Not configured"}
-          </small>
+          <strong>{money(summary?.failedAmount)}</strong>
+          <small>Failed payments &amp; payouts in range</small>
         </article>
       </div>
-      {stripeBalance?.error ? (
-        <p className="form-error">Stripe: {stripeBalance.error}</p>
-      ) : null}
-      <TableShell>
-        <table className="admin-table">
-          <thead>
-            <tr>
-              <th>Provider Balance</th>
-              <th className="numeric-cell">Gross</th>
-              <th className="numeric-cell">OWVO {commissionPercent}%</th>
-              <th className="numeric-cell">Washer {washerPercent}%</th>
-              <th className="numeric-cell">Paid</th>
-              <th className="numeric-cell">Payable</th>
-              <th>Status</th>
-              <th>Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            {providerBalances.map((balance) => {
-              const isPaid = balance.payableAmount <= 0 && balance.netAmount > 0;
-              return (
-                <tr key={balance.provider?._id || `${balance.grossAmount}-${balance.jobs}`}>
-                  <td>
-                    <strong>{balance.provider?.name || "Washer"}</strong>
-                    <span>{balance.jobs} completed jobs</span>
-                  </td>
-                  <td className="numeric-cell">{money(balance.grossAmount)}</td>
-                  <td className="numeric-cell">{money(balance.commissionAmount)}</td>
-                  <td className="numeric-cell">{money(balance.netAmount)}</td>
-                  <td className="numeric-cell">{money(balance.paidOut)}</td>
-                  <td className="numeric-cell">{money(balance.payableAmount)}</td>
-                  <td>
-                    <span className={`table-status ${isPaid ? "paid" : "pending"}`}>
-                      {isPaid ? "paid" : "not paid"}
-                    </span>
-                  </td>
-                  <td>
-                    <button
-                      className="mini-text-button"
-                      disabled={
-                        !balance.provider?._id ||
-                        balance.payableAmount <= 0 ||
-                        createPayoutMutation.isPending
-                      }
-                      onClick={() => {
-                        const providerName = balance.provider?.name || "this washer";
-                        const confirmed = window.confirm(
-                          `Confirm ${money(balance.payableAmount)} has already been manually paid to ${providerName}?`
-                        );
-                        if (confirmed) createPayoutMutation.mutate(balance);
-                      }}
-                      type="button"
-                    >
-                      Paid
-                    </button>
+
+      <div className="pay-pills">
+        {typePills.map((pill) => (
+          <button
+            key={pill.key}
+            type="button"
+            className={`pay-pill${typeFilter === pill.key ? " active" : ""}`}
+            onClick={() => {
+              setTypeFilter(pill.key);
+              setStatusFilter("");
+              setPage(1);
+            }}
+          >
+            {pill.label}
+            {typeof pill.count === "number" ? (
+              <span className="pay-pill-count">{pill.count}</span>
+            ) : null}
+          </button>
+        ))}
+      </div>
+
+      <div className="pay-toolbar">
+        <div className="pay-search">
+          <Search size={16} />
+          <input
+            value={searchInput}
+            onChange={(event) => setSearchInput(event.target.value)}
+            placeholder="Search TXN, name or email…"
+          />
+        </div>
+        <select
+          className="pay-select"
+          value={statusFilter}
+          disabled={typeFilter === "failed"}
+          onChange={(event) => {
+            setStatusFilter(event.target.value);
+            setPage(1);
+          }}
+        >
+          <option value="">All statuses</option>
+          {statusOptions.map((status) => (
+            <option key={status} value={status}>
+              {PAY_STATUS_LABELS[status] || status}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {txnQuery.isError ? (
+        <div className="pay-state">
+          <p className="form-error">
+            Could not load transactions — please check your connection.
+          </p>
+          <button
+            type="button"
+            className="pay-btn pay-btn-primary"
+            onClick={() => txnQuery.refetch()}
+          >
+            Retry
+          </button>
+        </div>
+      ) : (
+        <TableShell>
+          <table className="admin-table">
+            <thead>
+              <tr>
+                <th>Transaction</th>
+                <th>Type</th>
+                <th>Party</th>
+                <th>Method</th>
+                <th>Date</th>
+                <th className="numeric-cell">Amount</th>
+                <th>Status</th>
+                <th aria-label="Actions" />
+              </tr>
+            </thead>
+            <tbody>
+              {txnQuery.isLoading ? (
+                <tr>
+                  <td colSpan={8} className="pay-state-cell">
+                    Loading transactions…
                   </td>
                 </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </TableShell>
-      {createPayoutMutation.error ? (
-        <p className="form-error">{getApiErrorMessage(createPayoutMutation.error)}</p>
-      ) : null}
-      <TableShell>
-        <div className="table-heading-row">
-          <div>
-            <h2>Manual Provider Payment Records</h2>
-            <p>Saved records for salaries the admin has already paid manually.</p>
-          </div>
+              ) : rows.length === 0 ? (
+                <tr>
+                  <td colSpan={8} className="pay-state-cell">
+                    No transactions found for this filter
+                    {search ? ` and search “${search}”` : ""} in {dateRange.label}.
+                    Try a wider date range or a different filter.
+                  </td>
+                </tr>
+              ) : (
+                rows.map((row) => (
+                  <tr
+                    key={`${row.sourceType}-${row.id}`}
+                    className="pay-row"
+                    onClick={() => setSelected(row)}
+                  >
+                    <td>
+                      <strong>{row.txnNumber || "—"}</strong>
+                      {row.bookingId ? (
+                        <span className="pay-sub">
+                          Booking …{String(row.bookingId).slice(-6)}
+                        </span>
+                      ) : null}
+                    </td>
+                    <td>
+                      <span className={`pay-type pay-type-${row.sourceType}`}>
+                        {row.sourceType === "payment"
+                          ? row.kind === "tips"
+                            ? "Tip"
+                            : "Payment"
+                          : row.sourceType === "payout"
+                            ? row.kind === "bonus"
+                              ? "Bonus Payout"
+                              : "Payout"
+                            : "Refund"}
+                      </span>
+                    </td>
+                    <td>
+                      <div className="pay-party">
+                        <PayAvatar name={partyName(row)} />
+                        <div>
+                          <strong>{partyName(row)}</strong>
+                          <span className="pay-sub">{partyEmail(row) || ""}</span>
+                        </div>
+                      </div>
+                    </td>
+                    <td>{row.method}</td>
+                    <td>{payFmtDate(row.createdAt)}</td>
+                    <td
+                      className={`numeric-cell pay-amount ${
+                        row.direction === "out" ? "pay-amount-out" : "pay-amount-in"
+                      }`}
+                    >
+                      {row.direction === "out" ? "−" : "+"}
+                      {money(row.amount)}
+                    </td>
+                    <td>
+                      <span className={`pay-status pay-status-${row.status}`}>
+                        {PAY_STATUS_LABELS[row.status] || row.status}
+                      </span>
+                      {row.failureReason ? (
+                        <span className="pay-sub pay-fail-reason">
+                          {row.failureReason}
+                        </span>
+                      ) : null}
+                    </td>
+                    <td>
+                      <button
+                        type="button"
+                        className="pay-icon-btn"
+                        aria-label="Transaction actions"
+                        onClick={(event) => openMenu(event, row)}
+                      >
+                        <MoreHorizontal size={18} />
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </TableShell>
+      )}
+
+      {data && data.totalPages > 1 ? (
+        <div className="pay-pagination">
+          <button
+            type="button"
+            className="pay-btn pay-btn-ghost"
+            disabled={page <= 1}
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+          >
+            <ChevronLeft size={15} /> Previous
+          </button>
+          <span>
+            Page {data.page} of {data.totalPages} · {data.total} transactions
+          </span>
+          <button
+            type="button"
+            className="pay-btn pay-btn-ghost"
+            disabled={page >= data.totalPages}
+            onClick={() => setPage((p) => p + 1)}
+          >
+            Next <ChevronRight size={15} />
+          </button>
         </div>
-        <table className="admin-table">
-          <thead>
-            <tr>
-              <th>Record</th>
-              <th>Provider</th>
-              <th className="numeric-cell">Amount</th>
-              <th>Status</th>
-              <th>Paid Date</th>
-              <th>Report</th>
-            </tr>
-          </thead>
-          <tbody>
-            {paidRecords.map((payout) => (
-              <tr key={payout._id}>
-                <td>
-                  <strong>#{payout._id.slice(-6).toUpperCase()}</strong>
-                  <span>{relativeDate(payout.createdAt)}</span>
-                </td>
-                <td>{payout.provider?.name || "Washer"}</td>
-                <td className="numeric-cell">{money(payout.amount)}</td>
-                <td>
-                  <span className={`table-status ${payout.status}`}>{payout.status}</span>
-                </td>
-                <td>{relativeDate(payout.paidAt || payout.createdAt)}</td>
-                <td><ProviderPayoutDownloadButton payout={payout} /></td>
-              </tr>
+      ) : null}
+
+      <div className="pay-how">
+        <strong>How actions work:</strong>
+        <span>
+          Refunds return by the original route (wallet instantly, card in 3–10
+          days). Automatic payouts run through Stripe Connect; a failed one can
+          be retried or paid manually — never twice. Paid records are final and
+          are never deleted.
+        </span>
+      </div>
+
+      {/* ── Row actions menu (fixed position — table overflow se bahar) ── */}
+      {menu ? (
+        <>
+          <div className="pay-menu-backdrop" onClick={() => setMenu(null)} />
+          <div className="pay-menu" style={{ left: menu.x, top: menu.y }}>
+            {menuActions(menu.row).map((action) => (
+              <button
+                key={action.label}
+                type="button"
+                className={action.danger ? "danger" : ""}
+                onClick={() => {
+                  setMenu(null);
+                  action.run();
+                }}
+              >
+                {action.label}
+              </button>
             ))}
-          </tbody>
-        </table>
-        {!paidRecords.length ? <EmptyState text="No manual provider payments recorded for this period." /> : null}
-      </TableShell>
-      <TableShell>
-        <table className="admin-table">
-          <thead>
-            <tr>
-              <th>Payment</th>
-              <th>Customer</th>
-              <th>Provider</th>
-              <th>Type</th>
-              <th className="numeric-cell">Amount</th>
-              <th>Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {(paymentsQuery.data || []).map((payment: AdminPayment) => (
-              <tr key={payment._id}>
-                <td>
-                  <strong>{payment.transactionId || `#${payment._id.slice(-6)}`}</strong>
-                  <span>{relativeDate(payment.createdAt)}</span>
-                </td>
-                <td>{payment.userId?.name || "Customer"}</td>
-                <td>{payment.providerId?.name || "Washer"}</td>
-                <td>{payment.type || "booking"}</td>
-                <td className="numeric-cell">{money(payment.price)}</td>
-                <td>
-                  <span className={`table-status ${payment.status}`}>{payment.status}</span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </TableShell>
+          </div>
+        </>
+      ) : null}
+
+      {/* ── Detail panel ── */}
+      {selected ? (
+        <>
+          <div className="pay-panel-overlay" onClick={() => setSelected(null)} />
+          <aside className="pay-panel">
+            <div className="pay-panel-head">
+              <div>
+                <h3>{selected.txnNumber || "Transaction"}</h3>
+                <p>
+                  <span className={`pay-status pay-status-${selected.status}`}>
+                    {PAY_STATUS_LABELS[selected.status] || selected.status}
+                  </span>{" "}
+                  · {payFmtDateTime(selected.createdAt)}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="pay-icon-btn"
+                onClick={() => setSelected(null)}
+                aria-label="Close details"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="pay-panel-amount">
+              <span>
+                {selected.sourceType === "payout"
+                  ? "Payout"
+                  : selected.sourceType === "refund"
+                    ? "Refund"
+                    : selected.kind === "tips"
+                      ? "Tip"
+                      : "Payment"}
+              </span>
+              <strong>
+                {selected.direction === "out" ? "−" : "+"}
+                {money(selected.amount)}
+              </strong>
+              <small>{selected.method}</small>
+            </div>
+
+            <div className="pay-tabs">
+              {(
+                [
+                  ["overview", "Overview"],
+                  ["booking", "Booking"],
+                  ["details", "Payment Details"],
+                  ["notes", "Notes"],
+                  ["activity", "Activity"],
+                ] as const
+              ).map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  className={panelTab === key ? "active" : ""}
+                  onClick={() => setPanelTab(key)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            <div className="pay-panel-body">
+              {detailQuery.isLoading ? (
+                <p className="pay-hint">Loading details…</p>
+              ) : detailQuery.isError ? (
+                <p className="form-error">
+                  Could not load the full details.{" "}
+                  <button type="button" className="mini-text-button" onClick={() => detailQuery.refetch()}>
+                    Retry
+                  </button>
+                </p>
+              ) : null}
+
+              {panelTab === "overview" ? (
+                <div>
+                  <div className="pay-kv">
+                    <span>{selected.sourceType === "payout" ? "Provider" : "Customer"}</span>
+                    <strong>{partyName(selected)}</strong>
+                  </div>
+                  <div className="pay-kv">
+                    <span>Email</span>
+                    <strong>{partyEmail(selected) || "—"}</strong>
+                  </div>
+                  {selected.sourceType !== "payout" && selected.provider ? (
+                    <div className="pay-kv">
+                      <span>Provider</span>
+                      <strong>{selected.provider.name}</strong>
+                    </div>
+                  ) : null}
+                  {booking ? (
+                    <>
+                      <div className="pay-kv">
+                        <span>Booking total</span>
+                        <strong>
+                          {money(
+                            Number(booking.finalPrice ?? booking.price ?? 0)
+                          )}
+                        </strong>
+                      </div>
+                      {booking.providerNetAmount !== null &&
+                      booking.providerNetAmount !== undefined ? (
+                        <>
+                          <div className="pay-kv">
+                            <span>
+                              OWVO commission
+                              {booking.commissionRate !== null &&
+                              booking.commissionRate !== undefined
+                                ? ` (${Math.round(Number(booking.commissionRate) * 100)}% — rate at completion)`
+                                : ""}
+                            </span>
+                            <strong>{money(Number(booking.commissionAmount ?? 0))}</strong>
+                          </div>
+                          <div className="pay-kv">
+                            <span>Provider net</span>
+                            <strong>{money(Number(booking.providerNetAmount))}</strong>
+                          </div>
+                        </>
+                      ) : (
+                        <div className="pay-kv">
+                          <span>Commission split</span>
+                          <strong>Snapshot pending (runs with the one-time update)</strong>
+                        </div>
+                      )}
+                    </>
+                  ) : null}
+                  {selected.sourceType === "payment" &&
+                  Number(record.walletAmount || 0) > 0 ? (
+                    <>
+                      <div className="pay-kv">
+                        <span>Paid from wallet</span>
+                        <strong>{money(Number(record.walletAmount))}</strong>
+                      </div>
+                      <div className="pay-kv">
+                        <span>Paid by card</span>
+                        <strong>{money(Number(record.cardAmount || 0))}</strong>
+                      </div>
+                    </>
+                  ) : null}
+                  {selected.sourceType === "refund" ? (
+                    <>
+                      <div className="pay-kv">
+                        <span>Back to wallet</span>
+                        <strong>{money(Number(record.walletPortion || 0))}</strong>
+                      </div>
+                      <div className="pay-kv">
+                        <span>Back to card</span>
+                        <strong>{money(Number(record.cardPortion || 0))}</strong>
+                      </div>
+                      <div className="pay-kv">
+                        <span>Reason</span>
+                        <strong>{String(record.reason || "—")}</strong>
+                      </div>
+                    </>
+                  ) : null}
+                  {selected.failureReason ? (
+                    <div className="pay-kv">
+                      <span>Failure reason</span>
+                      <strong>{selected.failureReason}</strong>
+                    </div>
+                  ) : null}
+                  <div className="pay-panel-actions">
+                    {selected.sourceType === "payment" &&
+                    selected.status === "paid" &&
+                    selected.bookingId ? (
+                      <button
+                        type="button"
+                        className="pay-btn pay-btn-danger"
+                        onClick={() => setModal({ kind: "refund", row: selected })}
+                      >
+                        <RotateCcw size={15} /> Issue Refund
+                      </button>
+                    ) : null}
+                    {selected.sourceType === "payout" &&
+                    (selected.status === "pending" || selected.status === "failed") ? (
+                      <>
+                        <button
+                          type="button"
+                          className="pay-btn pay-btn-primary"
+                          onClick={() => setModal({ kind: "retry", row: selected })}
+                        >
+                          <RotateCcw size={15} /> Retry Automatic
+                        </button>
+                        <button
+                          type="button"
+                          className="pay-btn pay-btn-ghost"
+                          onClick={() => setModal({ kind: "paymanually", row: selected })}
+                        >
+                          <Send size={15} /> Pay Manually
+                        </button>
+                      </>
+                    ) : null}
+                    {selected.sourceType === "refund" &&
+                    ["requested", "under_review", "approved"].includes(selected.status) ? (
+                      <button
+                        type="button"
+                        className="pay-btn pay-btn-primary"
+                        onClick={() => setModal({ kind: "review", row: selected })}
+                      >
+                        Review Refund
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
+
+              {panelTab === "booking" ? (
+                <div>
+                  {booking ? (
+                    <>
+                      <div className="pay-kv">
+                        <span>Service</span>
+                        <strong>{String(bookingService?.title || "—")}</strong>
+                      </div>
+                      <div className="pay-kv">
+                        <span>Status</span>
+                        <strong style={{ textTransform: "capitalize" }}>
+                          {String(booking.status || "—")}
+                        </strong>
+                      </div>
+                      <div className="pay-kv">
+                        <span>Customer</span>
+                        <strong>{String(bookingUser?.name || "—")}</strong>
+                      </div>
+                      <div className="pay-kv">
+                        <span>Provider</span>
+                        <strong>{String(bookingProvider?.name || "—")}</strong>
+                      </div>
+                      <div className="pay-kv">
+                        <span>Scheduled</span>
+                        <strong>
+                          {payFmtDateTime(
+                            (booking.date as string) || (booking.createdAt as string)
+                          )}
+                        </strong>
+                      </div>
+                      <button
+                        type="button"
+                        className="pay-btn pay-btn-ghost"
+                        onClick={() => {
+                          window.location.href = `/bookings/${selected.bookingId || booking._id}`;
+                        }}
+                      >
+                        <Eye size={15} /> Open booking
+                      </button>
+                    </>
+                  ) : selected.sourceType === "payout" &&
+                    (detail?.bookings || []).length > 0 ? (
+                    <>
+                      <p className="pay-hint">
+                        This payout covers these bookings:
+                      </p>
+                      {(detail?.bookings || []).map((item) => {
+                        const b = item as Record<string, unknown>;
+                        const svc = (b.service || null) as
+                          | Record<string, unknown>
+                          | null;
+                        return (
+                          <div className="pay-kv" key={String(b._id)}>
+                            <span>
+                              {String(svc?.title || "Booking")} ·{" "}
+                              {payFmtDate(b.completedAt as string)}
+                            </span>
+                            <strong>{money(Number(b.finalPrice ?? b.price ?? 0))}</strong>
+                          </div>
+                        );
+                      })}
+                    </>
+                  ) : (
+                    <p className="pay-hint">No booking is linked to this transaction.</p>
+                  )}
+                </div>
+              ) : null}
+
+              {panelTab === "details" ? (
+                <div>
+                  {(
+                    [
+                      ["Transaction ID", record._id],
+                      ["Stripe payment", record.transactionId],
+                      ["Stripe transfer", record.stripeTransferId],
+                      ["Stripe payout", record.stripePayoutId],
+                      ["Stripe refund", record.stripeRefundId],
+                      ["Destination account", record.stripeDestinationAccountId],
+                      ["Manual record note", record.manualAdjustmentReason],
+                      ["Failure reason", record.failureReason],
+                      ["Created", record.createdAt ? payFmtDateTime(String(record.createdAt)) : null],
+                      ["Last updated", record.updatedAt ? payFmtDateTime(String(record.updatedAt)) : null],
+                      ["Paid at", record.paidAt ? payFmtDateTime(String(record.paidAt)) : null],
+                      ["Refunded at", record.refundedAt ? payFmtDateTime(String(record.refundedAt)) : null],
+                    ] as [string, unknown][]
+                  )
+                    .filter(([, value]) => value !== undefined && value !== null && value !== "")
+                    .map(([label, value]) => (
+                      <div className="pay-kv" key={label}>
+                        <span>{label}</span>
+                        <strong className="pay-mono">{String(value)}</strong>
+                      </div>
+                    ))}
+                  {attempts.length > 0 ? (
+                    <>
+                      <h4 className="pay-section-title">Attempts</h4>
+                      {attempts.map((attempt, index) => (
+                        <div className="pay-kv" key={index}>
+                          <span>
+                            {payFmtDateTime(attempt.at as string)} ·{" "}
+                            {String(attempt.action || "")}
+                          </span>
+                          <strong>
+                            {String(attempt.result || "")}
+                            {attempt.note ? ` — ${String(attempt.note)}` : ""}
+                          </strong>
+                        </div>
+                      ))}
+                    </>
+                  ) : null}
+                  {record.earningReversal ? (
+                    <>
+                      <h4 className="pay-section-title">Provider earning reversal</h4>
+                      <div className="pay-kv">
+                        <span>Status</span>
+                        <strong>
+                          {String(
+                            (record.earningReversal as Record<string, unknown>).status || "none"
+                          )}
+                        </strong>
+                      </div>
+                      <div className="pay-kv">
+                        <span>Amount</span>
+                        <strong>
+                          {money(
+                            Number(
+                              (record.earningReversal as Record<string, unknown>).amount || 0
+                            )
+                          )}
+                        </strong>
+                      </div>
+                    </>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {panelTab === "notes" ? (
+                <div>
+                  {detailNotes.length === 0 ? (
+                    <p className="pay-hint">No notes yet for this transaction.</p>
+                  ) : (
+                    detailNotes.map((note) => (
+                      <div className="pay-note" key={note._id}>
+                        <div className="pay-note-head">
+                          <strong>{note.author?.name || "Admin"}</strong>
+                          <span>
+                            {note.visibility === "customer" ? "Customer can see" : "Internal"} ·{" "}
+                            {payFmtDateTime(note.createdAt)}
+                          </span>
+                        </div>
+                        <p>{note.text}</p>
+                      </div>
+                    ))
+                  )}
+                  {noteError ? <div className="pay-error">{noteError}</div> : null}
+                  <div className="pay-radio-row">
+                    <label>
+                      <input
+                        type="radio"
+                        name="panel-note-visibility"
+                        checked={noteVisibility === "internal"}
+                        onChange={() => setNoteVisibility("internal")}
+                      />
+                      Internal
+                    </label>
+                    <label>
+                      <input
+                        type="radio"
+                        name="panel-note-visibility"
+                        checked={noteVisibility === "customer"}
+                        onChange={() => setNoteVisibility("customer")}
+                      />
+                      Customer can see
+                    </label>
+                  </div>
+                  <label className="pay-field">
+                    <span>Add a note</span>
+                    <textarea
+                      rows={3}
+                      value={noteText}
+                      onChange={(event) => setNoteText(event.target.value)}
+                      placeholder="Write the note…"
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    className="pay-btn pay-btn-primary"
+                    disabled={noteMutation.isPending || !noteText.trim()}
+                    onClick={() => noteMutation.mutate()}
+                  >
+                    {noteMutation.isPending ? "Saving…" : "Save note"}
+                  </button>
+                </div>
+              ) : null}
+
+              {panelTab === "activity" ? (
+                <div>
+                  <div className="pay-kv">
+                    <span>Created</span>
+                    <strong>{payFmtDateTime(selected.createdAt)}</strong>
+                  </div>
+                  {attempts.length > 0 ? (
+                    attempts.map((attempt, index) => (
+                      <div className="pay-kv" key={index}>
+                        <span>{payFmtDateTime(attempt.at as string)}</span>
+                        <strong>
+                          {String(attempt.action || "")} → {String(attempt.result || "")}
+                        </strong>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="pay-hint">
+                      No separate activity entries — status changes for this
+                      transaction appear in the Activity Logs.
+                    </p>
+                  )}
+                </div>
+              ) : null}
+            </div>
+          </aside>
+        </>
+      ) : null}
+
+      {/* ── Modals ── */}
+      {modal?.kind === "refund" ? (
+        <IssueRefundModal row={modal.row} onClose={() => setModal(null)} />
+      ) : null}
+      {modal?.kind === "review" ? (
+        <RefundReviewModal row={modal.row} onClose={() => setModal(null)} />
+      ) : null}
+      {modal?.kind === "paymanually" ? (
+        <PayManuallyModal row={modal.row} onClose={() => setModal(null)} />
+      ) : null}
+      {modal?.kind === "retry" ? (
+        <RetryPayoutModal row={modal.row} onClose={() => setModal(null)} />
+      ) : null}
+      {modal?.kind === "markfailed" ? (
+        <MarkPayoutFailedModal row={modal.row} onClose={() => setModal(null)} />
+      ) : null}
+      {modal?.kind === "note" ? (
+        <TransactionNoteModal row={modal.row} onClose={() => setModal(null)} />
+      ) : null}
+      {modal?.kind === "receipt" ? (
+        <ReceiptModal row={modal.row} onClose={() => setModal(null)} />
+      ) : null}
+      {modal?.kind === "reconciliation" ? (
+        <ReconciliationModal
+          data={reconQuery.data}
+          isLoading={reconQuery.isLoading}
+          isError={reconQuery.isError}
+          onRetry={() => reconQuery.refetch()}
+          onClose={() => setModal(null)}
+        />
+      ) : null}
     </section>
   );
 }
@@ -8751,7 +9564,7 @@ export function SettingsPageContent() {
       >
         <label>
           OWVO Commission %
-          <input defaultValue={settings ? settings.commissionRate * 100 : 25} name="commissionRate" type="number" />
+          <input key={settings ? "settings-loaded" : "settings-loading"} defaultValue={settings ? settings.commissionRate * 100 : ""} disabled={!settings} placeholder={settings ? "" : "Loading…"} name="commissionRate" type="number" />
         </label>
         <label>
           Provider daily wash limit

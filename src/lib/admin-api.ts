@@ -1850,3 +1850,233 @@ export async function createAdminBookingV2(data: {
   );
   return response.data.data;
 }
+
+// ─── Payments & Refunds (unified) ───
+// Unified transactions list, refund queue, payout actions,
+// transaction notes aur reconciliation. Purane getAdminPayments /
+// getAdminPayouts / getAdminEarnings waisay hi rehte hain.
+
+export interface AdminTransactionRow {
+  id: string;
+  sourceType: "payment" | "payout" | "refund";
+  txnNumber: string;
+  kind: string;
+  direction: "in" | "out";
+  amount: number;
+  currency: string;
+  status: string;
+  rawStatus?: string;
+  method: string;
+  customer: { id: string; name: string; email: string } | null;
+  provider: { id: string; name: string; email: string } | null;
+  bookingId: string | null;
+  failureReason?: string;
+  createdAt: string;
+}
+
+export interface AdminTransactionsResult {
+  transactions: AdminTransactionRow[];
+  counts: { all: number; payment: number; payout: number; refund: number; failed: number };
+  summary: {
+    totalPayments: number;
+    pendingPayouts: number;
+    refundRequestsAmount: number;
+    refundRequestsCount: number;
+    failedAmount: number;
+  };
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+}
+
+export async function getAdminTransactions(
+  params: DateRangeQuery & {
+    type?: string;
+    status?: string;
+    search?: string;
+    page?: number;
+    limit?: number;
+  }
+) {
+  const query = buildQuery({
+    ...params,
+    type: params.type === "all" ? undefined : params.type,
+    status: params.status || undefined,
+    search: params.search || undefined,
+  });
+  const response = await api.get<ApiEnvelope<AdminTransactionsResult>>(
+    `/admin/transactions${query}`
+  );
+  return response.data.data;
+}
+
+export interface AdminTransactionNote {
+  _id: string;
+  sourceType: string;
+  sourceId: string;
+  text: string;
+  visibility: "internal" | "customer";
+  author?: { _id: string; name?: string; email?: string };
+  createdAt: string;
+}
+
+export interface AdminTransactionDetail {
+  record: Record<string, unknown>;
+  booking: Record<string, unknown> | null;
+  bookings?: Record<string, unknown>[];
+  payment: Record<string, unknown> | null;
+  notes: AdminTransactionNote[];
+}
+
+export async function getAdminTransactionDetail(
+  sourceType: "payment" | "payout" | "refund",
+  id: string
+) {
+  const response = await api.get<ApiEnvelope<AdminTransactionDetail>>(
+    `/admin/transactions/${sourceType}/${id}`
+  );
+  return response.data.data;
+}
+
+export async function createAdminTransactionNote(payload: {
+  sourceType: "payment" | "payout" | "refund";
+  sourceId: string;
+  text: string;
+  visibility: "internal" | "customer";
+}) {
+  const response = await api.post<ApiEnvelope<AdminTransactionNote>>(
+    `/admin/transactions/notes`,
+    payload
+  );
+  return response.data.data;
+}
+
+export async function issueAdminRefund(
+  bookingId: string,
+  payload: { amount?: number; reason?: string; reasonCategory?: string }
+) {
+  const response = await api.post<ApiEnvelope<Record<string, unknown>>>(
+    `/admin/bookings/${bookingId}/refund`,
+    payload
+  );
+  return response.data.data;
+}
+
+export interface AdminRefund {
+  _id: string;
+  txnNumber?: string;
+  booking?: string | { _id: string; finalPrice?: number };
+  customer?: { _id: string; name?: string; email?: string };
+  provider?: { _id: string; name?: string; email?: string };
+  amount: number;
+  walletPortion: number;
+  cardPortion: number;
+  status: string;
+  source: string;
+  reason?: string;
+  reasonCategory?: string;
+  createdAt: string;
+  refundedAt?: string;
+}
+
+export interface AdminRefundsResult {
+  refunds: AdminRefund[];
+  counts: Record<string, { count: number; amount: number }>;
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+}
+
+export async function getAdminRefunds(
+  params: DateRangeQuery & { status?: string; search?: string; page?: number; limit?: number }
+) {
+  const query = buildQuery({
+    ...params,
+    status: params.status || undefined,
+    search: params.search || undefined,
+  });
+  const response = await api.get<ApiEnvelope<AdminRefundsResult>>(`/admin/refunds${query}`);
+  return response.data.data;
+}
+
+export async function decideAdminRefund(
+  refundId: string,
+  payload: { decision: "approve" | "reject" | "more_info"; amount?: number; note?: string }
+) {
+  const response = await api.post<ApiEnvelope<AdminRefund>>(
+    `/admin/refunds/${refundId}/decide`,
+    payload
+  );
+  return response.data.data;
+}
+
+export async function processAdminRefund(refundId: string) {
+  const response = await api.post<ApiEnvelope<AdminRefund>>(
+    `/admin/refunds/${refundId}/process`
+  );
+  return response.data.data;
+}
+
+export async function updateAdminPayoutStatusV2(
+  payoutId: string,
+  payload: { status: "pending" | "processing" | "paid" | "failed"; failureReason?: string }
+) {
+  const response = await api.patch<ApiEnvelope<AdminPayout>>(
+    `/admin/payouts/${payoutId}/status`,
+    payload
+  );
+  return response.data.data;
+}
+
+export async function retryAdminPayout(payoutId: string) {
+  const response = await api.post<ApiEnvelope<AdminPayout>>(
+    `/admin/payouts/${payoutId}/retry`
+  );
+  return response.data.data;
+}
+
+export async function payAdminPayoutManually(
+  payoutId: string,
+  payload: { reference?: string; note?: string }
+) {
+  const response = await api.post<ApiEnvelope<AdminPayout>>(
+    `/admin/payouts/${payoutId}/pay-manually`,
+    payload
+  );
+  return response.data.data;
+}
+
+export interface AdminReconciliation {
+  issues: {
+    stripeRefundsNotRecorded: {
+      stripeRefundId: string;
+      amount: number;
+      paymentIntentId: string;
+      bookingId: string | null;
+      at: string;
+    }[];
+    stuckPayouts: { _id: string; txnNumber?: string; amount?: number }[];
+    paidPaymentsBookingNotPaid: { _id: string; transactionId?: string; price?: number }[];
+    stuckRefunds: { _id: string; txnNumber?: string; amount?: number }[];
+  };
+  counts: {
+    stripeRefundsNotRecorded: number;
+    stuckPayouts: number;
+    paidPaymentsBookingNotPaid: number;
+    stuckRefunds: number;
+    total: number;
+  };
+  stripeBalance: {
+    available: { currency: string; amount: number }[];
+    pending: { currency: string; amount: number }[];
+  } | null;
+  stripeError?: string;
+  checkedAt: string;
+}
+
+export async function getAdminReconciliation() {
+  const response = await api.get<ApiEnvelope<AdminReconciliation>>(`/admin/reconciliation`);
+  return response.data.data;
+}
