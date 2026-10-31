@@ -2311,6 +2311,17 @@ function ProviderDetailPanel({
         })
       | undefined
   )?.completedJobs || [];
+  const dailyLimit = (
+    detail as
+      | (AdminProviderDetail & {
+          dailyLimit?: {
+            max: number;
+            remaining: number;
+            completedToday?: number | null;
+          };
+        })
+      | undefined
+  )?.dailyLimit;
   const bookingStatusLabel: Record<string, string> = {
     pending: "Pending",
     accepted: "Accepted",
@@ -2605,8 +2616,12 @@ function ProviderDetailPanel({
                   <dd>{fmtDate(d?.createdAt || provider.createdAt)}</dd>
                 </div>
                 <div>
-                  <dt>Daily Wash Limit</dt>
-                  <dd>{d?.dailyWashLimit ?? provider.dailyWashLimit ?? "—"} per day</dd>
+                  <dt>Daily Booking Limit</dt>
+                  <dd>
+                    {dailyLimit
+                      ? `${dailyLimit.remaining} of ${dailyLimit.max} remaining today`
+                      : "—"}
+                  </dd>
                 </div>
                 <div>
                   <dt>Account</dt>
@@ -3213,18 +3228,26 @@ function ProviderDetailPanel({
                 </ul>
               )}
 
-              <h4 className="prov-section-title">Daily Wash Limit</h4>
+              <h4 className="prov-section-title">Daily Booking Limit</h4>
               <div className="prov-limit-row">
                 <div>
-                  <strong>{provider.dailyWashLimit ?? "—"} washes / day</strong>
+                  <strong>
+                    {dailyLimit
+                      ? `${dailyLimit.remaining} washes remaining today`
+                      : "—"}
+                  </strong>
                   <small>
-                    The provider sets their daily wash limit in their own app —
-                    it can only be viewed here.
+                    Maximum{" "}
+                    {dailyLimit ? dailyLimit.max : "—"} bookings per day —
+                    set by admin for all providers.
                   </small>
                 </div>
-                <span className="prov-doc-state prov-doc-uploaded">
-                  Provider controlled
-                </span>
+                {dailyLimit ? (
+                  <span className="prov-doc-state prov-doc-uploaded">
+                    {Math.max(dailyLimit.max - dailyLimit.remaining, 0)} of{" "}
+                    {dailyLimit.max} used
+                  </span>
+                ) : null}
               </div>
 
               <h4 className="prov-section-title">Working Hours</h4>
