@@ -27,6 +27,10 @@ import {
   getAdminPayments,
   getAdminPayouts,
   getAdminTransactions,
+  getAdminEarningsV2,
+  getAdminCommissionWithdrawals,
+  exportAdminEarningsCsv,
+  getEarningAdjustments,
   getAdminTransactionDetail,
   getAdminReconciliation,
   createAdminTransactionNote,
@@ -77,6 +81,7 @@ import { useDashboardDateRange } from "@/hooks/useDashboardDateRange";
 import { useDashboardUser } from "@/hooks/useDashboardUser";
 import { hydrateDashboardSession, storeDashboardSession } from "@/lib/auth-storage";
 import { getDashboardSocketOptions } from "@/lib/socket";
+import { getStoredUser } from "@/lib/auth-storage";
 import { initials, money } from "@/lib/format";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
@@ -124,7 +129,11 @@ import {
 } from "lucide-react";
 import { ChangeEvent, FormEvent, MouseEvent as ReactMouseEvent, useEffect, useMemo, useRef, useState } from "react";
 import { io } from "socket.io-client";
-import type { AdminTransactionRow } from "@/lib/admin-api";
+import type {
+  AdminEarningEntry,
+  AdminEarningsV2,
+  AdminTransactionRow,
+} from "@/lib/admin-api";
 import {
   IssueRefundModal,
   MarkPayoutFailedModal,
@@ -140,6 +149,14 @@ import {
   payFmtDate,
   payFmtDateTime,
 } from "./payments/PaymentsModals";
+import {
+  AddAdjustmentModal,
+  EarnNoteModal,
+  HoldEarningsModal,
+  ReleaseHoldModal,
+  SendPayoutModal,
+  WithdrawCommissionModal,
+} from "./earnings/EarningsModals";
 
 const menuOptions = [
   { key: "dashboard", label: "Dashboard" },
@@ -6982,84 +6999,1185 @@ export function CustomersPageContent() {
 export function EarningsPageContent() {
   const queryClient = useQueryClient();
   const dateRange = useDashboardDateRange();
-  const user = useDashboardUser();
-  const earningsQuery = useQuery({
-    queryKey: ["admin-earnings", dateRange.queryKey],
-    queryFn: () => getAdminEarnings(dateRange.query),
-    refetchInterval: 30000,
-  });
-  const earnings = earningsQuery.data;
+  const [tab, setTab] = useState<
+    "bookings" | "providers" | "payouts" | "adjustments" | "withdrawals"
+  >("bookings");
+  const [searchInput, setSearchInput] = useState("");
+  const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [granularity, setGranularity] = useState<
+    "daily" | "weekly" | "monthly"
+  >("daily");
+  const [panelEntry, setPanelEntry] = useState<AdminEarningEntry | null>(null);
+  const [menu, setMenu] = useState<{
+    kind: "booking" | "provider";
+    x: number;
+    y: number;
+    entry?: AdminEarningEntry;
+    providerRow?: AdminEarningsV2["providers"][number];
+  } | null>(null);
+  const [modal, setModal] = useState<
+    | { kind: "payout"; providerId: string; providerName: string; available: number; defaultAmount: number }
+    | { kind: "adjust"; providerId?: string; bookingId?: string }
+    | { kind: "hold"; entry: AdminEarningEntry }
+    | { kind: "release"; entry: AdminEarningEntry }
+    | { kind: "note"; entry: AdminEarningEntry }
+    | { kind: "withdraw"; available: number }
+    | null
+  >(null);
 
   useEffect(() => {
+    const handle = setTimeout(() => {
+      setSearch(searchInput.trim());
+      setPage(1);
+    }, 350);
+    return () => clearTimeout(handle);
+  }, [searchInput]);
+
+  const earningsQuery = useQuery({
+    queryKey: ["admin-earnings-v2", dateRange.queryKey, search, page, granularity],
+    queryFn: () =>
+      getAdminEarningsV2({
+        ...dateRange.query,
+        search: search || undefined,
+        page,
+        limit: 20,
+        granularity,
+      }),
+  });
+  const data = earningsQuery.data;
+  const range = data?.summary.range;
+  const providers = data?.providers || [];
+
+  const payoutsQuery = useQuery({
+    queryKey: ["admin-transactions", "earn-payouts"],
+    queryFn: () => getAdminTransactions({ type: "payout", limit: 50 }),
+    enabled: tab === "payouts",
+  });
+  const adjustmentsQuery = useQuery({
+    queryKey: ["admin-earnings-adjustments", search],
+    queryFn: () => getEarningAdjustments({ search: search || undefined }),
+    enabled: tab === "adjustments",
+  });
+  const withdrawalsQuery = useQuery({
+    queryKey: ["admin-commission-withdrawals", dateRange.queryKey],
+    queryFn: () => getAdminCommissionWithdrawals(dateRange.query),
+    enabled: tab === "withdrawals",
+  });
+
+  useEffect(() => {
+    const user = getStoredUser();
     const socket = io(SOCKET_URL, getDashboardSocketOptions(user?._id));
-    const refresh = () => queryClient.invalidateQueries({ queryKey: ["admin-earnings"] });
-    socket.on("admin_booking_status_updated", refresh);
+    const refresh = () => {
+      void queryClient.invalidateQueries({ queryKey: ["admin-earnings-v2"] });
+      void queryClient.invalidateQueries({
+        queryKey: ["admin-earnings-adjustments"],
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["admin-commission-withdrawals"],
+      });
+    };
     socket.on("admin_payout_updated", refresh);
+    socket.on("admin_booking_status_updated", refresh);
+    socket.on("admin_booking_created", refresh);
     return () => {
-      socket.off("admin_booking_status_updated", refresh);
-      socket.off("admin_payout_updated", refresh);
       socket.disconnect();
     };
-  }, [queryClient, user?._id]);
+  }, [queryClient]);
+
+  const providerById = (id?: string) =>
+    providers.find((row) => row.provider._id === id);
+
+  const openMenu = (
+    event: ReactMouseEvent<HTMLButtonElement>,
+    payload: NonNullable<typeof menu>
+  ) => {
+    event.stopPropagation();
+    const rect = event.currentTarget.getBoundingClientRect();
+    setMenu({
+      ...payload,
+      x: Math.max(window.innerWidth - 236, 8),
+      y: Math.min(rect.bottom + 6, window.innerHeight - 280),
+    });
+  };
+
+  const exportMutation = useMutation({
+    mutationFn: () =>
+      exportAdminEarningsCsv({
+        ...dateRange.query,
+        search: search || undefined,
+      }),
+    onSuccess: (blob) => {
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "owvo-earnings.csv";
+      link.click();
+      URL.revokeObjectURL(url);
+    },
+  });
+
+  // ── Chart geometry (sada SVG line chart, asal data) ──
+  const series = data?.series || [];
+  const chartMax = Math.max(
+    ...series.map((point) => point.gross),
+    ...series.map((point) => point.commission),
+    1
+  );
+  const chartW = 760;
+  const chartH = 220;
+  const chartPad = { left: 46, right: 10, top: 12, bottom: 26 };
+  const chartX = (index: number) =>
+    series.length <= 1
+      ? chartPad.left + (chartW - chartPad.left - chartPad.right) / 2
+      : chartPad.left +
+        (index * (chartW - chartPad.left - chartPad.right)) /
+          (series.length - 1);
+  const chartY = (value: number) =>
+    chartH -
+    chartPad.bottom -
+    (value / chartMax) * (chartH - chartPad.top - chartPad.bottom);
+  const linePath = (field: "gross" | "commission") =>
+    series
+      .map(
+        (point, index) =>
+          `${index === 0 ? "M" : "L"}${chartX(index).toFixed(1)},${chartY(point[field]).toFixed(1)}`
+      )
+      .join(" ");
+  const areaPath =
+    series.length > 1
+      ? `${linePath("gross")} L${chartX(series.length - 1).toFixed(1)},${(chartH - chartPad.bottom).toFixed(1)} L${chartX(0).toFixed(1)},${(chartH - chartPad.bottom).toFixed(1)} Z`
+      : "";
+  const labelStride = Math.max(Math.ceil(series.length / 8), 1);
+  const chartEmpty =
+    series.length === 0 || series.every((point) => point.gross === 0);
+
+  const statusClass = (status: string) =>
+    `pay-status earn-status-${status.toLowerCase().replace(/ /g, "-")}`;
 
   return (
     <section className="data-page">
       <div className="data-page-header">
         <div>
           <h1>Earnings</h1>
-          <p>Completed-booking earnings with OWVO commission and washer net income.</p>
+          <p>
+            OWVO commission, provider payouts and refunds — snapshot-based,
+            the same numbers as Payments & Refunds. {dateRange.label}
+          </p>
+        </div>
+        <div className="pay-header-actions">
+          <button
+            type="button"
+            className="pay-btn"
+            onClick={() => exportMutation.mutate()}
+            disabled={exportMutation.isPending}
+          >
+            <Download size={15} /> Export CSV
+          </button>
+          <button
+            type="button"
+            className="pay-btn"
+            onClick={() => void earningsQuery.refetch()}
+          >
+            <RefreshCw size={15} /> Refresh
+          </button>
         </div>
       </div>
-      <div className="summary-grid">
-        <article className="stat-card">
-          <span>Today OWVO Earnings</span>
-          <strong>{money(earnings?.summary.today.commissionAmount)}</strong>
-        </article>
-        <article className="stat-card">
-          <span>This Week OWVO Earnings</span>
-          <strong>{money(earnings?.summary.week.commissionAmount)}</strong>
-        </article>
-        <article className="stat-card">
-          <span>Net Profit</span>
-          <strong>{money(earnings?.summary.netProfit ?? earnings?.summary.pendingNet)}</strong>
-        </article>
-        <article className="stat-card">
-          <span>Paid Out</span>
-          <strong>{money(earnings?.summary.paidOut)}</strong>
-        </article>
-      </div>
-      <TableShell>
-        <table className="admin-table">
-          <thead>
-            <tr>
-              <th>Booking</th>
-              <th>Washer</th>
-              <th>Service</th>
-              <th className="numeric-cell">Gross</th>
-              <th className="numeric-cell">
-                {`OWVO ${Math.round((earnings?.commissionRate ?? 0.25) * 100)}%`}
-              </th>
-              <th className="numeric-cell">Washer Net</th>
-            </tr>
-          </thead>
-          <tbody>
-            {(earnings?.entries || []).map((entry) => (
-              <tr key={entry.bookingId}>
-                <td>
-                  <strong>#{entry.bookingId.toString().slice(-6).toUpperCase()}</strong>
-                  <span>{relativeDate(entry.date)}</span>
-                </td>
-                <td>{entry.provider?.name || "Washer"}</td>
-                <td>{entry.service?.title || entry.service?.serviceType || "Wash Service"}</td>
-                <td className="numeric-cell">{money(entry.grossAmount)}</td>
-                <td className="numeric-cell">{money(entry.commissionAmount)}</td>
-                <td className="numeric-cell">{money(entry.netAmount)}</td>
-              </tr>
+
+      {earningsQuery.isError ? (
+        <div className="pay-state">
+          <p className="pay-error">
+            {payErrMsg(
+              earningsQuery.error,
+              "Earnings could not be loaded. Check your connection and try again."
+            )}
+          </p>
+          <button
+            type="button"
+            className="pay-btn"
+            onClick={() => void earningsQuery.refetch()}
+          >
+            Retry
+          </button>
+        </div>
+      ) : (
+        <>
+          <div className="summary-grid">
+            <article className="stat-card">
+              <span>Gross Volume</span>
+              <strong>{range ? money(range.gross) : "—"}</strong>
+              <small>{range ? `${range.jobs} completed jobs in range` : "Loading…"}</small>
+            </article>
+            <article className="stat-card">
+              <span>OWVO Commission</span>
+              <strong>{range ? money(range.commission) : "—"}</strong>
+              <small>
+                {range ? `${range.effectiveRate.toFixed(1)}% of gross (effective)` : "Loading…"}
+              </small>
+            </article>
+            <article className="stat-card">
+              <span>Provider Net</span>
+              <strong>{range ? money(range.providerNet) : "—"}</strong>
+              <small>
+                {range ? `+ ${money(range.tips)} tips (100% provider)` : "Loading…"}
+              </small>
+            </article>
+            <article className="stat-card">
+              <span>Refunds</span>
+              <strong>{range ? money(range.refunds) : "—"}</strong>
+              <small>
+                {range ? `${range.refundsCount} refunded in range` : "Loading…"}
+              </small>
+            </article>
+            <article className="stat-card">
+              <span>Paid Out</span>
+              <strong>{range ? money(range.paidOut) : "—"}</strong>
+              <small>To providers in range</small>
+            </article>
+            <article className="stat-card">
+              <span>Pending Payouts</span>
+              <strong>
+                {data ? money(data.summary.pendingPayouts) : "—"}
+              </strong>
+              <small>Available to providers right now</small>
+            </article>
+          </div>
+
+          <div className="earn-chart-card">
+            <div className="earn-chart-head">
+              <h3>Earnings Trend</h3>
+              <div className="earn-legend">
+                <span>
+                  <i className="earn-dot earn-dot-gross" /> Gross Volume
+                </span>
+                <span>
+                  <i className="earn-dot earn-dot-commission" /> OWVO Commission
+                </span>
+              </div>
+              <div className="earn-granularity">
+                {(["daily", "weekly", "monthly"] as const).map((option) => (
+                  <button
+                    key={option}
+                    type="button"
+                    className={granularity === option ? "active" : ""}
+                    onClick={() => setGranularity(option)}
+                  >
+                    {option === "daily"
+                      ? "Daily"
+                      : option === "weekly"
+                        ? "Weekly"
+                        : "Monthly"}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {chartEmpty ? (
+              <p className="pay-hint">
+                No earnings in this range yet — the trend appears as soon as
+                washes complete.
+              </p>
+            ) : (
+              <svg
+                viewBox={`0 0 ${chartW} ${chartH}`}
+                className="earn-chart"
+                role="img"
+                aria-label="Earnings trend"
+              >
+                {[0.25, 0.5, 0.75, 1].map((fraction) => (
+                  <g key={fraction}>
+                    <line
+                      x1={chartPad.left}
+                      x2={chartW - chartPad.right}
+                      y1={chartY(chartMax * fraction)}
+                      y2={chartY(chartMax * fraction)}
+                      className="earn-grid-line"
+                    />
+                    <text
+                      x={chartPad.left - 6}
+                      y={chartY(chartMax * fraction) + 4}
+                      className="earn-axis"
+                      textAnchor="end"
+                    >
+                      £{Math.round(chartMax * fraction)}
+                    </text>
+                  </g>
+                ))}
+                {areaPath ? <path d={areaPath} className="earn-area" /> : null}
+                <path d={linePath("gross")} className="earn-line-gross" />
+                <path d={linePath("commission")} className="earn-line-commission" />
+                {series.map((point, index) =>
+                  index % labelStride === 0 ? (
+                    <text
+                      key={point.key}
+                      x={chartX(index)}
+                      y={chartH - 6}
+                      className="earn-axis"
+                      textAnchor="middle"
+                    >
+                      {point.label}
+                    </text>
+                  ) : null
+                )}
+              </svg>
+            )}
+          </div>
+
+          <div className="earn-tabs">
+            {(
+              [
+                ["bookings", "Bookings"],
+                ["providers", "Providers"],
+                ["payouts", "Payouts"],
+                ["adjustments", "Adjustments"],
+                ["withdrawals", "Withdrawals"],
+              ] as const
+            ).map(([key, label]) => (
+              <button
+                key={key}
+                type="button"
+                className={tab === key ? "active" : ""}
+                onClick={() => setTab(key)}
+              >
+                {label}
+                {key === "bookings" && data ? (
+                  <span className="pay-pill-count">{data.pagination.total}</span>
+                ) : null}
+                {key === "providers" && data ? (
+                  <span className="pay-pill-count">{providers.length}</span>
+                ) : null}
+              </button>
             ))}
-          </tbody>
-        </table>
-        {earningsQuery.isLoading ? <EmptyState text="Loading earnings..." /> : null}
-      </TableShell>
+          </div>
+
+          <div className="pay-toolbar">
+            <label className="pay-search">
+              <Search size={16} />
+              <input
+                value={searchInput}
+                onChange={(event) => setSearchInput(event.target.value)}
+                placeholder="Search by booking ID, customer or provider…"
+              />
+            </label>
+            {tab === "adjustments" ? (
+              <button
+                type="button"
+                className="pay-btn pay-btn-primary"
+                onClick={() => setModal({ kind: "adjust" })}
+              >
+                <Plus size={15} /> Add Adjustment
+              </button>
+            ) : null}
+            {tab === "withdrawals" ? (
+              <button
+                type="button"
+                className="pay-btn pay-btn-primary"
+                disabled={
+                  !withdrawalsQuery.data ||
+                  withdrawalsQuery.data.summary.availableCommission <= 0
+                }
+                onClick={() =>
+                  withdrawalsQuery.data &&
+                  setModal({
+                    kind: "withdraw",
+                    available:
+                      withdrawalsQuery.data.summary.availableCommission,
+                  })
+                }
+              >
+                <Plus size={15} /> New Withdrawal
+              </button>
+            ) : null}
+          </div>
+
+          {tab === "bookings" ? (
+            <>
+              <TableShell>
+                <table className="admin-table">
+                  <thead>
+                    <tr>
+                      <th>Booking</th>
+                      <th>Customer</th>
+                      <th>Provider</th>
+                      <th>Service</th>
+                      <th>Gross</th>
+                      <th>Commission</th>
+                      <th>Net</th>
+                      <th>Tip</th>
+                      <th>Total</th>
+                      <th>Status</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {earningsQuery.isLoading ? (
+                      <tr>
+                        <td colSpan={11} className="pay-state-cell">
+                          Loading earnings…
+                        </td>
+                      </tr>
+                    ) : !data || data.entries.length === 0 ? (
+                      <tr>
+                        <td colSpan={11} className="pay-state-cell">
+                          No completed bookings in this range yet.
+                        </td>
+                      </tr>
+                    ) : (
+                      data.entries.map((entry) => (
+                        <tr
+                          key={entry.bookingId}
+                          className="pay-row"
+                          onClick={() => setPanelEntry(entry)}
+                        >
+                          <td>
+                            <strong>{entry.displayId}</strong>
+                            <span className="pay-sub">
+                              {payFmtDate(entry.date)}
+                            </span>
+                          </td>
+                          <td>
+                            <div className="pay-party">
+                              <PayAvatar name={entry.customer?.name} />
+                              <div>
+                                <strong>{entry.customer?.name || "Customer"}</strong>
+                                <span className="pay-sub">{entry.customer?.email || ""}</span>
+                              </div>
+                            </div>
+                          </td>
+                          <td>
+                            <div className="pay-party">
+                              <PayAvatar name={entry.provider?.name} />
+                              <div>
+                                <strong>{entry.provider?.name || "Provider"}</strong>
+                                <span className="pay-sub">{entry.provider?.email || ""}</span>
+                              </div>
+                            </div>
+                          </td>
+                          <td>{entry.service?.title || entry.service?.serviceType || "Wash Service"}</td>
+                          <td>{money(entry.grossAmount)}</td>
+                          <td>
+                            {money(entry.commissionAmount)}
+                            <span className="pay-sub">
+                              {entry.hasSnapshot
+                                ? `${Math.round((entry.commissionRate || 0) * 100)}% snapshot`
+                                : "current rate"}
+                            </span>
+                          </td>
+                          <td>{money(entry.netAmount)}</td>
+                          <td>{money(entry.tip)}</td>
+                          <td>
+                            <strong>{money(entry.totalToProvider)}</strong>
+                          </td>
+                          <td>
+                            <span className={statusClass(entry.status)}>
+                              {entry.status}
+                            </span>
+                          </td>
+                          <td>
+                            <button
+                              type="button"
+                              className="pay-icon-btn"
+                              aria-label="Earning actions"
+                              onClick={(event) =>
+                                openMenu(event, { kind: "booking", x: 0, y: 0, entry })
+                              }
+                            >
+                              <MoreHorizontal size={17} />
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </TableShell>
+              {data && data.pagination.totalPages > 1 ? (
+                <div className="pay-pagination">
+                  <span>
+                    Page {data.pagination.page} of {data.pagination.totalPages} ·{" "}
+                    {data.pagination.total} bookings
+                  </span>
+                  <div className="pay-header-actions">
+                    <button
+                      type="button"
+                      className="pay-btn"
+                      disabled={page <= 1}
+                      onClick={() => setPage((value) => value - 1)}
+                    >
+                      <ChevronLeft size={15} /> Prev
+                    </button>
+                    <button
+                      type="button"
+                      className="pay-btn"
+                      disabled={page >= data.pagination.totalPages}
+                      onClick={() => setPage((value) => value + 1)}
+                    >
+                      Next <ChevronRight size={15} />
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+            </>
+          ) : null}
+
+          {tab === "providers" ? (
+            <TableShell>
+              <table className="admin-table">
+                <thead>
+                  <tr>
+                    <th>Provider</th>
+                    <th>Jobs</th>
+                    <th>Gross</th>
+                    <th>Commission</th>
+                    <th>Net</th>
+                    <th>Tips</th>
+                    <th>Adjustments</th>
+                    <th>Paid Out</th>
+                    <th>Available</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {earningsQuery.isLoading ? (
+                    <tr>
+                      <td colSpan={10} className="pay-state-cell">Loading providers…</td>
+                    </tr>
+                  ) : providers.length === 0 ? (
+                    <tr>
+                      <td colSpan={10} className="pay-state-cell">
+                        No provider earnings in this range yet.
+                      </td>
+                    </tr>
+                  ) : (
+                    providers.map((row) => (
+                      <tr key={row.provider._id}>
+                        <td>
+                          <div className="pay-party">
+                            <PayAvatar name={row.provider.name} />
+                            <div>
+                              <strong>{row.provider.name || "Provider"}</strong>
+                              <span className="pay-sub">{row.provider.email || ""}</span>
+                            </div>
+                          </div>
+                        </td>
+                        <td>{row.jobs}</td>
+                        <td>{money(row.gross)}</td>
+                        <td>{money(row.commission)}</td>
+                        <td>{money(row.net)}</td>
+                        <td>{money(row.tips)}</td>
+                        <td>
+                          {row.manualAdjustments === 0
+                            ? "—"
+                            : row.manualAdjustments > 0
+                              ? `+${money(row.manualAdjustments)}`
+                              : `−${money(Math.abs(row.manualAdjustments))}`}
+                        </td>
+                        <td>{money(row.paidOut)}</td>
+                        <td>
+                          <strong>{money(row.available)}</strong>
+                          {row.heldAmount > 0 ? (
+                            <span className="pay-sub">
+                              {money(row.heldAmount)} on hold
+                            </span>
+                          ) : null}
+                        </td>
+                        <td>
+                          <button
+                            type="button"
+                            className="pay-icon-btn"
+                            aria-label="Provider earning actions"
+                            onClick={(event) =>
+                              openMenu(event, {
+                                kind: "provider",
+                                x: 0,
+                                y: 0,
+                                providerRow: row,
+                              })
+                            }
+                          >
+                            <MoreHorizontal size={17} />
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </TableShell>
+          ) : null}
+
+          {tab === "payouts" ? (
+            <>
+              <TableShell>
+                <table className="admin-table">
+                  <thead>
+                    <tr>
+                      <th>Transaction</th>
+                      <th>Provider</th>
+                      <th>Method</th>
+                      <th>Date</th>
+                      <th>Amount</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {payoutsQuery.isLoading ? (
+                      <tr>
+                        <td colSpan={6} className="pay-state-cell">Loading payouts…</td>
+                      </tr>
+                    ) : payoutsQuery.isError ? (
+                      <tr>
+                        <td colSpan={6} className="pay-state-cell">
+                          Payouts could not be loaded.{" "}
+                          <button
+                            type="button"
+                            className="mini-text-button"
+                            onClick={() => void payoutsQuery.refetch()}
+                          >
+                            Retry
+                          </button>
+                        </td>
+                      </tr>
+                    ) : !payoutsQuery.data ||
+                      payoutsQuery.data.transactions.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="pay-state-cell">
+                          No payouts yet. Payouts are created from a
+                          provider&apos;s available balance.
+                        </td>
+                      </tr>
+                    ) : (
+                      payoutsQuery.data.transactions.map((row) => (
+                        <tr key={row.id}>
+                          <td>
+                            <strong>{row.txnNumber || "—"}</strong>
+                          </td>
+                          <td>{row.provider?.name || "Provider"}</td>
+                          <td>{row.method || "—"}</td>
+                          <td>{payFmtDate(row.createdAt)}</td>
+                          <td>{money(row.amount)}</td>
+                          <td>
+                            <span className={statusClass(row.status)}>
+                              {row.status}
+                            </span>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </TableShell>
+              <p className="pay-hint">
+                Payouts are managed in full — retry, manual payment and
+                history — on the Payments & Refunds page. The numbers are
+                the same records, never a second copy.
+              </p>
+            </>
+          ) : null}
+
+          {tab === "adjustments" ? (
+            <TableShell>
+              <table className="admin-table">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Provider</th>
+                    <th>Type</th>
+                    <th>Amount</th>
+                    <th>Reason</th>
+                    <th>By</th>
+                    <th>Booking</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {adjustmentsQuery.isLoading ? (
+                    <tr>
+                      <td colSpan={7} className="pay-state-cell">Loading adjustments…</td>
+                    </tr>
+                  ) : adjustmentsQuery.isError ? (
+                    <tr>
+                      <td colSpan={7} className="pay-state-cell">
+                        Adjustments could not be loaded.{" "}
+                        <button
+                          type="button"
+                          className="mini-text-button"
+                          onClick={() => void adjustmentsQuery.refetch()}
+                        >
+                          Retry
+                        </button>
+                      </td>
+                    </tr>
+                  ) : !adjustmentsQuery.data ||
+                    adjustmentsQuery.data.adjustments.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="pay-state-cell">
+                        No manual adjustments yet. Bonuses and deductions
+                        added by an admin appear here with their reason.
+                      </td>
+                    </tr>
+                  ) : (
+                    adjustmentsQuery.data.adjustments.map((row) => (
+                      <tr key={row._id}>
+                        <td>{payFmtDate(row.createdAt)}</td>
+                        <td>
+                          <div className="pay-party">
+                            <PayAvatar name={row.provider?.name} />
+                            <div>
+                              <strong>{row.provider?.name || "Provider"}</strong>
+                              <span className="pay-sub">{row.provider?.email || ""}</span>
+                            </div>
+                          </div>
+                        </td>
+                        <td>
+                          <span
+                            className={`pay-type ${row.type === "deduction" ? "pay-type-refund" : ""}`}
+                          >
+                            {row.type === "bonus" ? "Bonus" : "Deduction"}
+                          </span>
+                        </td>
+                        <td>
+                          <span
+                            className={`pay-amount ${row.type === "bonus" ? "pay-amount-in" : "pay-amount-out"}`}
+                          >
+                            {row.type === "bonus" ? "+" : "−"}
+                            {money(row.amount)}
+                          </span>
+                        </td>
+                        <td>{row.reason}</td>
+                        <td>{row.createdBy?.name || "Admin"}</td>
+                        <td>
+                          {row.booking
+                            ? `#${row.booking._id.slice(-6).toUpperCase()}`
+                            : "—"}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </TableShell>
+          ) : null}
+
+          {tab === "withdrawals" ? (
+            <>
+              {withdrawalsQuery.data ? (
+                <div className="earn-strip">
+                  <div>
+                    <span>Available commission</span>
+                    <strong>
+                      {money(withdrawalsQuery.data.summary.availableCommission)}
+                    </strong>
+                  </div>
+                  <div>
+                    <span>Withdrawn (range)</span>
+                    <strong>
+                      {money(withdrawalsQuery.data.summary.periodWithdrawn)}
+                    </strong>
+                  </div>
+                  <div>
+                    <span>All-time commission</span>
+                    <strong>
+                      {money(withdrawalsQuery.data.summary.allCommission)}
+                    </strong>
+                  </div>
+                  <div>
+                    <span>All-time withdrawn</span>
+                    <strong>
+                      {money(withdrawalsQuery.data.summary.allWithdrawn)}
+                    </strong>
+                  </div>
+                </div>
+              ) : null}
+              <TableShell>
+                <table className="admin-table">
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Amount</th>
+                      <th>Status</th>
+                      <th>Stripe Payout</th>
+                      <th>Requested By</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {withdrawalsQuery.isLoading ? (
+                      <tr>
+                        <td colSpan={5} className="pay-state-cell">Loading withdrawals…</td>
+                      </tr>
+                    ) : withdrawalsQuery.isError ? (
+                      <tr>
+                        <td colSpan={5} className="pay-state-cell">
+                          Withdrawals could not be loaded.{" "}
+                          <button
+                            type="button"
+                            className="mini-text-button"
+                            onClick={() => void withdrawalsQuery.refetch()}
+                          >
+                            Retry
+                          </button>
+                        </td>
+                      </tr>
+                    ) : !withdrawalsQuery.data ||
+                      withdrawalsQuery.data.withdrawals.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="pay-state-cell">
+                          No commission withdrawals yet.
+                        </td>
+                      </tr>
+                    ) : (
+                      withdrawalsQuery.data.withdrawals.map((row) => (
+                        <tr key={row._id}>
+                          <td>{payFmtDate(row.createdAt)}</td>
+                          <td>
+                            <strong>{money(row.amount)}</strong>
+                          </td>
+                          <td>
+                            <span className={statusClass(row.status)}>
+                              {row.status}
+                            </span>
+                            {row.failureReason ? (
+                              <span className="pay-sub pay-fail-reason">
+                                {row.failureReason}
+                              </span>
+                            ) : null}
+                          </td>
+                          <td className="pay-mono">{row.stripePayoutId || "—"}</td>
+                          <td>{row.requestedBy?.name || "Admin"}</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </TableShell>
+            </>
+          ) : null}
+        </>
+      )}
+
+      {menu ? (
+        <>
+          <div className="pay-menu-backdrop" onClick={() => setMenu(null)} />
+          <div className="pay-menu" style={{ left: menu.x, top: menu.y }}>
+            {menu.kind === "booking" && menu.entry ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPanelEntry(menu.entry!);
+                    setMenu(null);
+                  }}
+                >
+                  View Details
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const entry = menu.entry!;
+                    const providerRow = providerById(entry.provider?._id);
+                    setModal({
+                      kind: "payout",
+                      providerId: entry.provider?._id || "",
+                      providerName: entry.provider?.name || "Provider",
+                      available: providerRow?.available ?? entry.totalToProvider,
+                      defaultAmount: entry.totalToProvider,
+                    });
+                    setMenu(null);
+                  }}
+                >
+                  Send Payout
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setModal({
+                      kind: "adjust",
+                      providerId: menu.entry!.provider?._id,
+                      bookingId: menu.entry!.bookingId,
+                    });
+                    setMenu(null);
+                  }}
+                >
+                  Add Adjustment
+                </button>
+                {menu.entry.hold?.source === "manual" ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setModal({ kind: "release", entry: menu.entry! });
+                      setMenu(null);
+                    }}
+                  >
+                    Release Hold
+                  </button>
+                ) : menu.entry.status === "Available" ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setModal({ kind: "hold", entry: menu.entry! });
+                      setMenu(null);
+                    }}
+                  >
+                    Hold Earnings
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setModal({ kind: "note", entry: menu.entry! });
+                    setMenu(null);
+                  }}
+                >
+                  Add Note
+                </button>
+              </>
+            ) : null}
+            {menu.kind === "provider" && menu.providerRow ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const row = menu.providerRow!;
+                    setModal({
+                      kind: "payout",
+                      providerId: row.provider._id,
+                      providerName: row.provider.name || "Provider",
+                      available: row.available,
+                      defaultAmount: row.available,
+                    });
+                    setMenu(null);
+                  }}
+                >
+                  Send Payout
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setModal({
+                      kind: "adjust",
+                      providerId: menu.providerRow!.provider._id,
+                    });
+                    setMenu(null);
+                  }}
+                >
+                  Add Adjustment
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    window.location.href = "/washers";
+                    setMenu(null);
+                  }}
+                >
+                  Open in Providers
+                </button>
+              </>
+            ) : null}
+          </div>
+        </>
+      ) : null}
+
+      {panelEntry ? (
+        <>
+          <div
+            className="pay-panel-overlay"
+            onClick={() => setPanelEntry(null)}
+          />
+          <aside className="pay-panel">
+            <div className="pay-panel-head">
+              <div>
+                <h3>
+                  Booking Earnings {panelEntry.displayId}{" "}
+                  <span className={statusClass(panelEntry.status)}>
+                    {panelEntry.status}
+                  </span>
+                </h3>
+                <p>{payFmtDateTime(panelEntry.date)}</p>
+              </div>
+              <button
+                type="button"
+                className="pay-icon-btn"
+                onClick={() => setPanelEntry(null)}
+                aria-label="Close details"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="pay-panel-amount">
+              <span>Total to Provider</span>
+              <strong>{money(panelEntry.totalToProvider)}</strong>
+              <small>
+                {panelEntry.service?.title ||
+                  panelEntry.service?.serviceType ||
+                  "Wash Service"}
+              </small>
+            </div>
+            <div className="pay-panel-body">
+              <h4 className="pay-section-title">Parties</h4>
+              <div className="pay-kv">
+                <span>Customer</span>
+                <strong>
+                  {panelEntry.customer?.name || "—"}
+                  <span className="pay-sub">{panelEntry.customer?.email || ""}</span>
+                </strong>
+              </div>
+              <div className="pay-kv">
+                <span>Provider</span>
+                <strong>
+                  {panelEntry.provider?.name || "—"}
+                  <span className="pay-sub">{panelEntry.provider?.email || ""}</span>
+                </strong>
+              </div>
+              <h4 className="pay-section-title">Earnings Breakdown</h4>
+              <div className="pay-kv">
+                <span>Gross Amount</span>
+                <strong>{money(panelEntry.grossAmount)}</strong>
+              </div>
+              <div className="pay-kv">
+                <span>
+                  OWVO Commission{" "}
+                  {panelEntry.hasSnapshot
+                    ? `(${Math.round((panelEntry.commissionRate || 0) * 100)}% snapshot)`
+                    : "(current rate — snapshot pending)"}
+                </span>
+                <strong>−{money(panelEntry.commissionAmount)}</strong>
+              </div>
+              <div className="pay-kv">
+                <span>Provider Net</span>
+                <strong>{money(panelEntry.netAmount)}</strong>
+              </div>
+              <div className="pay-kv">
+                <span>Tip (100% to Provider)</span>
+                <strong>{money(panelEntry.tip)}</strong>
+              </div>
+              {panelEntry.reversalAmount > 0 ? (
+                <div className="pay-kv">
+                  <span>Refund reversal</span>
+                  <strong>−{money(panelEntry.reversalAmount)}</strong>
+                </div>
+              ) : null}
+              <div className="pay-kv pay-kv-total">
+                <span>Total to Provider</span>
+                <strong>{money(panelEntry.totalToProvider)}</strong>
+              </div>
+              {panelEntry.hold ? (
+                <div className="pay-issue">
+                  <h4>On Hold</h4>
+                  <p className="pay-hint">
+                    {money(panelEntry.hold.amount || 0)} held ·{" "}
+                    {panelEntry.hold.source === "dispute"
+                      ? "Open dispute — resolve it from Support & Disputes to release."
+                      : `Manual hold — ${panelEntry.hold.reason || "no reason recorded"}.`}
+                  </p>
+                </div>
+              ) : null}
+              <div className="pay-panel-actions">
+                <button
+                  type="button"
+                  className="pay-btn pay-btn-primary"
+                  onClick={() => {
+                    const providerRow = providerById(panelEntry.provider?._id);
+                    setModal({
+                      kind: "payout",
+                      providerId: panelEntry.provider?._id || "",
+                      providerName: panelEntry.provider?.name || "Provider",
+                      available:
+                        providerRow?.available ?? panelEntry.totalToProvider,
+                      defaultAmount: panelEntry.totalToProvider,
+                    });
+                  }}
+                >
+                  <Send size={15} /> Send Payout
+                </button>
+                <button
+                  type="button"
+                  className="pay-btn"
+                  onClick={() =>
+                    setModal({
+                      kind: "adjust",
+                      providerId: panelEntry.provider?._id,
+                      bookingId: panelEntry.bookingId,
+                    })
+                  }
+                >
+                  Add Adjustment
+                </button>
+                {panelEntry.hold?.source === "manual" ? (
+                  <button
+                    type="button"
+                    className="pay-btn"
+                    onClick={() => setModal({ kind: "release", entry: panelEntry })}
+                  >
+                    Release Hold
+                  </button>
+                ) : panelEntry.status === "Available" ? (
+                  <button
+                    type="button"
+                    className="pay-btn pay-btn-danger-outline"
+                    onClick={() => setModal({ kind: "hold", entry: panelEntry })}
+                  >
+                    Hold Earnings
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  className="pay-btn"
+                  onClick={() => setModal({ kind: "note", entry: panelEntry })}
+                >
+                  Add Note
+                </button>
+                <button
+                  type="button"
+                  className="pay-btn"
+                  onClick={() => {
+                    window.location.href = `/bookings/${panelEntry.bookingId}`;
+                  }}
+                >
+                  Open Booking
+                </button>
+              </div>
+            </div>
+          </aside>
+        </>
+      ) : null}
+
+      {modal?.kind === "payout" ? (
+        <SendPayoutModal
+          providerId={modal.providerId}
+          providerName={modal.providerName}
+          available={modal.available}
+          defaultAmount={modal.defaultAmount}
+          onClose={() => setModal(null)}
+        />
+      ) : null}
+      {modal?.kind === "adjust" ? (
+        <AddAdjustmentModal
+          providers={providers.map((row) => ({
+            id: row.provider._id,
+            name: row.provider.name || "Provider",
+          }))}
+          fixedProviderId={modal.providerId}
+          bookingId={modal.bookingId}
+          onClose={() => setModal(null)}
+        />
+      ) : null}
+      {modal?.kind === "hold" ? (
+        <HoldEarningsModal entry={modal.entry} onClose={() => setModal(null)} />
+      ) : null}
+      {modal?.kind === "release" ? (
+        <ReleaseHoldModal entry={modal.entry} onClose={() => setModal(null)} />
+      ) : null}
+      {modal?.kind === "note" ? (
+        <EarnNoteModal
+          bookingId={modal.entry.bookingId}
+          displayId={modal.entry.displayId}
+          onClose={() => setModal(null)}
+        />
+      ) : null}
+      {modal?.kind === "withdraw" ? (
+        <WithdrawCommissionModal
+          availableCommission={modal.available}
+          onClose={() => setModal(null)}
+        />
+      ) : null}
     </section>
   );
 }

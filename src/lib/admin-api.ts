@@ -2080,3 +2080,188 @@ export async function getAdminReconciliation() {
   const response = await api.get<ApiEnvelope<AdminReconciliation>>(`/admin/reconciliation`);
   return response.data.data;
 }
+
+
+// ─── Earnings v2 ───
+// Snapshot-based kamai: cards, trend series, per-provider rollup,
+// booking entries (status ke sath), manual adjustments, earning
+// holds aur CSV export. Purana getAdminEarnings bhi maujood hai.
+
+export type AdminEarningEntry = {
+  bookingId: string;
+  displayId: string;
+  date?: string;
+  customer?: { _id: string; name?: string; email?: string } | null;
+  provider?: { _id: string; name?: string; email?: string } | null;
+  service?: { _id: string; title?: string; serviceType?: string } | null;
+  grossAmount: number;
+  commissionRate?: number | null;
+  hasSnapshot: boolean;
+  commissionAmount: number;
+  netAmount: number;
+  tip: number;
+  reversalAmount: number;
+  totalToProvider: number;
+  currency?: string;
+  status: "Available" | "Paid Out" | "Processing" | "On Hold" | "Refunded";
+  hold?: {
+    source: "manual" | "dispute";
+    amount?: number;
+    reason?: string;
+    at?: string;
+  } | null;
+};
+
+export type AdminEarningsV2 = {
+  commissionRate: number;
+  summary: {
+    range: {
+      gross: number;
+      commission: number;
+      providerNet: number;
+      tips: number;
+      jobs: number;
+      refunds: number;
+      refundsCount: number;
+      paidOut: number;
+      effectiveRate: number;
+    };
+    pendingPayouts: number;
+    paidOut: number;
+    netProfit: number;
+  };
+  series: {
+    key: string;
+    label: string;
+    gross: number;
+    commission: number;
+    refunds: number;
+  }[];
+  providers: {
+    provider: { _id: string; name?: string; email?: string };
+    jobs: number;
+    gross: number;
+    commission: number;
+    net: number;
+    tips: number;
+    paidOut: number;
+    heldAmount: number;
+    manualAdjustments: number;
+    available: number;
+  }[];
+  entries: AdminEarningEntry[];
+  pagination: { page: number; limit: number; total: number; totalPages: number };
+};
+
+export type AdminEarningsV2Params = DateRangeQuery & {
+  search?: string;
+  providerId?: string;
+  page?: number;
+  limit?: number;
+  granularity?: "daily" | "weekly" | "monthly";
+};
+
+export async function getAdminEarningsV2(params: AdminEarningsV2Params = {}) {
+  const query = buildQuery({
+    from: params.from,
+    to: params.to,
+    range: params.range,
+    search: params.search?.trim() || undefined,
+    providerId: params.providerId || undefined,
+    page: params.page,
+    limit: params.limit,
+    granularity: params.granularity,
+  });
+  const response = await api.get<ApiEnvelope<AdminEarningsV2>>(
+    `/admin/earnings${query}`
+  );
+  return response.data.data;
+}
+
+export async function exportAdminEarningsCsv(
+  params: AdminEarningsV2Params = {}
+) {
+  const query = buildQuery({
+    from: params.from,
+    to: params.to,
+    range: params.range,
+    search: params.search?.trim() || undefined,
+    providerId: params.providerId || undefined,
+  });
+  const response = await api.get(`/admin/earnings/export${query}`, {
+    responseType: "blob",
+  });
+  return response.data as Blob;
+}
+
+export type EarningAdjustmentRow = {
+  _id: string;
+  provider: { _id: string; name?: string; email?: string };
+  booking?: { _id: string } | null;
+  type: "bonus" | "deduction";
+  amount: number;
+  reason: string;
+  createdBy?: { _id: string; name?: string; email?: string };
+  createdAt?: string;
+};
+
+export async function getEarningAdjustments(
+  params: { providerId?: string; search?: string } = {}
+) {
+  const query = buildQuery({
+    providerId: params.providerId || undefined,
+    search: params.search?.trim() || undefined,
+  });
+  const response = await api.get<
+    ApiEnvelope<{ adjustments: EarningAdjustmentRow[]; total: number }>
+  >(`/admin/earnings/adjustments${query}`);
+  return response.data.data;
+}
+
+export async function createEarningAdjustment(payload: {
+  providerId: string;
+  bookingId?: string;
+  type: "bonus" | "deduction";
+  amount: number;
+  reason: string;
+}) {
+  const response = await api.post<ApiEnvelope<EarningAdjustmentRow>>(
+    "/admin/earnings/adjustments",
+    payload
+  );
+  return response.data.data;
+}
+
+export async function holdBookingEarning(
+  bookingId: string,
+  payload: { amount?: number; reason: string }
+) {
+  const response = await api.post<ApiEnvelope<Record<string, unknown>>>(
+    `/admin/bookings/${bookingId}/hold-earnings`,
+    payload
+  );
+  return response.data.data;
+}
+
+export async function releaseBookingEarning(bookingId: string) {
+  const response = await api.post<ApiEnvelope<Record<string, unknown>>>(
+    `/admin/bookings/${bookingId}/release-hold`,
+    {}
+  );
+  return response.data.data;
+}
+
+// Payout banana Earnings page se — autoAttempt true ho to backend
+// Stripe Connect par koshish karta hai, warna pending rehta hai
+// jise Pay Manually se band kiya jata hai.
+export async function createEarningsPayout(payload: {
+  providerId: string;
+  amount: number;
+  autoAttempt: boolean;
+}) {
+  const response = await api.post<ApiEnvelope<AdminPayout>>(
+    "/admin/payouts",
+    payload
+  );
+  return response.data.data;
+}

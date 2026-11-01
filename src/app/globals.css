@@ -6724,3 +6724,38 @@ a {
 .pay-issue { border: 1px solid #eee0b8; background: #fffdf4; border-radius: 12px; padding: 12px 14px; margin-top: 14px; }
 .pay-issue h4 { display: flex; align-items: center; gap: 7px; font-size: 13.5px; margin: 0 0 6px; color: #7a5b00; }
 @media (max-width: 640px) { .pay-actions-3 { justify-content: flex-end; } .pay-panel-amount strong { font-size: 22px; } }
+
+
+
+/* ─── Earnings (earn-*) — append-only block ─── */
+.earn-chart-card { background: #fff; border: 1px solid #eeeef2; border-radius: 14px; padding: 16px 18px; margin-top: 18px; }
+.earn-chart-head { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 8px; }
+.earn-chart-head h3 { margin: 0; font-size: 15.5px; }
+.earn-legend { display: flex; gap: 16px; font-size: 12.5px; color: #666672; margin-left: auto; }
+.earn-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.earn-dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+.earn-dot-gross { background: #2563eb; }
+.earn-dot-commission { background: #7c3aed; }
+.earn-granularity { display: inline-flex; border: 1px solid #dcdce4; border-radius: 9px; overflow: hidden; }
+.earn-granularity button { border: none; background: #fff; padding: 6px 12px; font-size: 12.5px; font-weight: 600; color: #55555f; cursor: pointer; }
+.earn-granularity button.active { background: #14213d; color: #fff; }
+.earn-chart { width: 100%; height: auto; display: block; }
+.earn-grid-line { stroke: #eeeef2; stroke-width: 1; }
+.earn-axis { font-size: 10.5px; fill: #8a8a96; }
+.earn-area { fill: rgba(37, 99, 235, .08); stroke: none; }
+.earn-line-gross { fill: none; stroke: #2563eb; stroke-width: 2; }
+.earn-line-commission { fill: none; stroke: #7c3aed; stroke-width: 2; }
+.earn-tabs { display: flex; gap: 2px; margin-top: 20px; border-bottom: 1px solid #e8e8ee; flex-wrap: wrap; }
+.earn-tabs button { display: inline-flex; align-items: center; gap: 7px; border: none; background: transparent; padding: 10px 14px; font-size: 13.5px; font-weight: 600; color: #666672; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.earn-tabs button:hover { color: #24242c; }
+.earn-tabs button.active { color: #14213d; border-bottom-color: #14213d; }
+.earn-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 14px; }
+.earn-strip > div { background: #fff; border: 1px solid #eeeef2; border-radius: 12px; padding: 12px 14px; }
+.earn-strip span { display: block; font-size: 12px; color: #8a8a96; font-weight: 600; }
+.earn-strip strong { display: block; font-size: 19px; margin-top: 4px; }
+.earn-status-available { background: #e5f6ec; color: #15803d; }
+.earn-status-paid-out, .earn-status-paid { background: #e8f0fe; color: #1d4ed8; }
+.earn-status-processing, .earn-status-requested { background: #fdf6e3; color: #a16207; }
+.earn-status-on-hold { background: #fdeeda; color: #b45309; }
+.earn-status-refunded { background: #f5eafd; color: #6d28d9; }
+.earn-status-failed { background: #fdecec; color: #b91c1c; }
