@@ -1042,6 +1042,79 @@ export function BookingDetailBody({
                   ) : null}
                 </div>
               ) : null}
+              {/* Live Journey — safar aur wash ki asal halat */}
+              {(booking as any).arrivedAt ||
+              ["arrived", "ongoing", "completed"].includes(booking.status) ? (
+                <>
+                  <div className="lj-steps">
+                    {[
+                      "Accepted",
+                      "En Route",
+                      "Arrived",
+                      "Washing",
+                      "Completed",
+                    ].map((label, i) => {
+                      const current =
+                        booking.status === "accepted"
+                          ? 1
+                          : booking.status === "arrived"
+                            ? 2
+                            : booking.status === "ongoing"
+                              ? 3
+                              : booking.status === "completed"
+                                ? 4
+                                : 0;
+                      const done = i <= current;
+                      return (
+                        <div className="lj-step" key={label}>
+                          <span
+                            className={`lj-dot${done ? " lj-dot-done" : ""}`}
+                          >
+                            {done ? "✓" : ""}
+                          </span>
+                          <small>{label}</small>
+                          {i < 4 ? (
+                            <span
+                              className={`lj-line${i < current ? " lj-line-done" : ""}`}
+                            />
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="bk2-mini-grid">
+                    <div className="bk2-mini-card">
+                      <span>📍 Arrived at</span>
+                      <strong>
+                        {(booking as any).arrivedAt
+                          ? bkDateTime((booking as any).arrivedAt)
+                          : "—"}
+                      </strong>
+                    </div>
+                    <div className="bk2-mini-card">
+                      <span>🧽 Wash started</span>
+                      <strong>
+                        {(booking as any).washStartedAt
+                          ? bkDateTime((booking as any).washStartedAt)
+                          : "—"}
+                      </strong>
+                      <small>
+                        {(booking as any).washStage
+                          ? `Stage: ${(booking as any).washStage}`
+                          : ""}
+                      </small>
+                    </div>
+                    <div className="bk2-mini-card">
+                      <span>⏱ Estimated completion</span>
+                      <strong>
+                        {(booking as any).washEndsAt
+                          ? bkDateTime((booking as any).washEndsAt)
+                          : "—"}
+                      </strong>
+                    </div>
+                  </div>
+                </>
+              ) : null}
               <div className="bk2-mini-grid">
                 <div className="bk2-mini-card">
                   <span>📍 Location</span>
