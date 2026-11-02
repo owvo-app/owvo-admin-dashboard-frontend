@@ -111,6 +111,11 @@ function BookingRow({
             ⚠ Dispute
           </span>
         ) : null}
+        {(booking as any).bookingType === "later" ? (
+          <span className="bk2-later-chip" title="Book for Later — scheduled booking">
+            Later
+          </span>
+        ) : null}
       </td>
       <td>
         <span>{bkDate(booking.bookingDate)}</span>
@@ -229,6 +234,9 @@ export function BookingsPageContent() {
   const [paymentStatus, setPaymentStatus] = useState("");
   const [day, setDay] = useState("");
   const [disputedOnly, setDisputedOnly] = useState(false);
+  const [bookingView, setBookingView] = useState<"all" | "later" | "upcoming">(
+    "all"
+  );
   const [showMore, setShowMore] = useState(false);
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(10);
@@ -262,7 +270,7 @@ export function BookingsPageContent() {
   useEffect(() => {
     setPage(1);
     setSelectedIds([]);
-  }, [status, search, serviceId, location, paymentStatus, day, disputedOnly, limit, dateRange.queryKey]);
+  }, [status, search, serviceId, location, paymentStatus, day, disputedOnly, bookingView, limit, dateRange.queryKey]);
 
   const bookingsQuery = useQuery({
     queryKey: [
@@ -275,6 +283,7 @@ export function BookingsPageContent() {
       paymentStatus,
       day,
       disputedOnly,
+      bookingView,
       page,
       limit,
     ],
@@ -288,6 +297,9 @@ export function BookingsPageContent() {
         paymentStatus: paymentStatus || undefined,
         day: day || undefined,
         disputed: disputedOnly || undefined,
+        bookingType: bookingView === "all" ? undefined : "later",
+        upcoming: bookingView === "upcoming" ? true : undefined,
+        sort: bookingView === "upcoming" ? "scheduled" : undefined,
         page,
         limit,
       }),
@@ -322,7 +334,7 @@ export function BookingsPageContent() {
   const totalCount = summary?.total ?? pagination.total;
 
   const hasFilters = Boolean(
-    search || serviceId || location || paymentStatus || day || disputedOnly || status !== "all"
+    search || serviceId || location || paymentStatus || day || disputedOnly || status !== "all" || bookingView !== "all"
   );
   const moreActive = Boolean(paymentStatus || day || disputedOnly);
 
@@ -335,6 +347,7 @@ export function BookingsPageContent() {
     setPaymentStatus("");
     setDay("");
     setDisputedOnly(false);
+    setBookingView("all");
   };
 
   const handleExport = async () => {
@@ -349,6 +362,8 @@ export function BookingsPageContent() {
         paymentStatus: paymentStatus || undefined,
         day: day || undefined,
         disputed: disputedOnly || undefined,
+        bookingType: bookingView === "all" ? undefined : "later",
+        upcoming: bookingView === "upcoming" ? true : undefined,
         ids: selectedIds.length ? selectedIds : undefined,
       });
       const url = URL.createObjectURL(blob);
@@ -469,6 +484,17 @@ export function BookingsPageContent() {
           <option value="completed">Completed</option>
           <option value="cancelled">Cancelled</option>
           <option value="declined">Declined</option>
+        </select>
+        <select
+          className="booking-filter-select"
+          onChange={(e) =>
+            setBookingView(e.target.value as "all" | "later" | "upcoming")
+          }
+          value={bookingView}
+        >
+          <option value="all">All booking types</option>
+          <option value="later">Later bookings</option>
+          <option value="upcoming">Upcoming later</option>
         </select>
         <select
           className="booking-filter-select"
@@ -622,9 +648,11 @@ export function BookingsPageContent() {
         !bookingsQuery.isError &&
         bookings.length === 0 ? (
           <div className="empty-state">
-            {hasFilters
-              ? "No bookings match these filters."
-              : "No bookings in this date range. Try widening the range from the top bar (for example, All Time)."}
+            {bookingView === "upcoming"
+              ? "No upcoming scheduled bookings."
+              : hasFilters
+                ? "No bookings match these filters."
+                : "No bookings in this date range. Try widening the range from the top bar (for example, All Time)."}
             {hasFilters ? (
               <button
                 className="booking-filter-reset"

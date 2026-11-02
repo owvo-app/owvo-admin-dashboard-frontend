@@ -978,6 +978,14 @@ export function BookingDetailBody({
                   <span className="table-sub">
                     Scheduled {bkDateTime(booking.bookingDate)}
                   </span>
+                  {(booking as any).bookingType === "later" ? (
+                    <span className="bk2-later-chip">
+                      Later booking — scheduled for{" "}
+                      {bkDateTime(
+                        (booking as any).scheduledAt || booking.bookingDate
+                      )}
+                    </span>
+                  ) : null}
                   {booking.estimatedArrival ? (
                     <span className="table-sub">
                       Estimated arrival {bkDateTime(booking.estimatedArrival)}
@@ -990,6 +998,50 @@ export function BookingDetailBody({
                   </strong>
                 ) : null}
               </div>
+              {(booking as any).bookingType === "later" &&
+              ((booking as any).requestExpiresAt ||
+                (booking as any).paymentDeadline) ? (
+                <div className="bk2-mini-grid">
+                  {(booking as any).requestExpiresAt ? (
+                    <div className="bk2-mini-card">
+                      <span>⏰ Provider response</span>
+                      <strong>
+                        {booking.status === "pending"
+                          ? `Must respond by ${bkDateTime(
+                              (booking as any).requestExpiresAt
+                            )}`
+                          : "Provider has responded"}
+                      </strong>
+                      <small>
+                        {booking.status === "pending"
+                          ? "Request auto-cancels if the provider does not respond in time."
+                          : "The provider answered this request."}
+                      </small>
+                    </div>
+                  ) : null}
+                  {(booking as any).paymentDeadline ? (
+                    <div className="bk2-mini-card">
+                      <span>💳 Payment deadline</span>
+                      <strong>
+                        {booking.payment?.status === "paid"
+                          ? "Paid"
+                          : `Due by ${bkDateTime(
+                              (booking as any).paymentDeadline
+                            )}`}
+                      </strong>
+                      <small>
+                        {booking.payment?.status === "paid"
+                          ? "The customer has paid for this booking."
+                          : new Date(
+                                (booking as any).paymentDeadline
+                              ).getTime() < Date.now()
+                            ? "Deadline passed — the booking auto-cancels shortly if still unpaid."
+                            : "Booking auto-cancels if it is still unpaid by this time."}
+                      </small>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
               <div className="bk2-mini-grid">
                 <div className="bk2-mini-card">
                   <span>📍 Location</span>

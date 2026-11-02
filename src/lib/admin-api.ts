@@ -1575,6 +1575,9 @@ export type AdminBookingsListParams = {
   location?: string;
   disputed?: boolean;
   day?: string;
+  bookingType?: string;
+  upcoming?: boolean;
+  sort?: string;
   page?: number;
   limit?: number;
 };
@@ -1602,6 +1605,9 @@ export async function getAdminBookingsV2(params: AdminBookingsListParams) {
     location: params.location,
     disputed: params.disputed ? "1" : undefined,
     day: params.day,
+    bookingType: params.bookingType,
+    upcoming: params.upcoming ? "1" : undefined,
+    sort: params.sort,
     page: params.page,
     limit: params.limit,
   });
@@ -1715,6 +1721,8 @@ export async function exportAdminBookingsCsv(
     location: params.location,
     disputed: params.disputed ? "1" : undefined,
     day: params.day,
+    bookingType: params.bookingType,
+    upcoming: params.upcoming ? "1" : undefined,
     ids: params.ids && params.ids.length ? params.ids.join(",") : undefined,
   });
   const response = await api.get(`/admin/bookings/export${query}`, {
