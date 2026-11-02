@@ -159,8 +159,11 @@ export function CreateBookingModal({
   const [error, setError] = useState("");
 
   const customersQuery = useQuery({
-    queryKey: ["customers"],
-    queryFn: () => getCustomers(),
+    queryKey: ["customers", "all"],
+    // Range na bhejo to backend default "weekly" laga kar sirf is
+    // haftay join honay walay customers deta hai — directory ke liye
+    // hamesha "all" bhejo (Customers page wala hi pattern).
+    queryFn: () => getCustomers({ range: "all" }),
   });
   const washersQuery = useQuery({
     queryKey: ["washers"],
@@ -182,9 +185,12 @@ export function CreateBookingModal({
 
   const customers = toArray(customersQuery.data);
   const washers = toArray(washersQuery.data);
-  const services = toArray(servicesQuery.data).filter(
-    (s: any) => s.isActive !== false
-  );
+  // Services-pricing ka jawab catalog ko "catalogServices" me deta
+  // hai — pehle yahan aam list dhoondi jati thi jo jawab me hoti hi
+  // nahi, is liye Service dropdown hamesha khali ata tha.
+  const services = toArray(
+    (servicesQuery.data as any)?.catalogServices ?? servicesQuery.data
+  ).filter((s: any) => s.isActive !== false);
   const addons = (addonsQuery.data ?? []).filter(
     (a: any) => a.isActive !== false
   );
