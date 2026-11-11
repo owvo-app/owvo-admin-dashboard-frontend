@@ -1,10 +1,5 @@
-import { PlaceholderPage } from "@/components/PlaceholderPage";
+import { ReportsAnalyticsPage } from "@/components/reports/ReportsAnalyticsPage";
 
-export default function ReportsAnalyticsPage() {
-  return (
-    <PlaceholderPage
-      title="Reports & Analytics"
-      description="Business analytics and reports will appear here."
-    />
-  );
+export default function ReportsAnalyticsRoute() {
+  return <ReportsAnalyticsPage />;
 }

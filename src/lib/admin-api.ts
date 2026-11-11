@@ -2273,3 +2273,322 @@ export async function createEarningsPayout(payload: {
   );
   return response.data.data;
 }
+
+
+/* ═══════════════ Reports & Analytics (REP) ═══════════════ */
+
+export type AnalyticsKpi = {
+  key: string;
+  value: number;
+  prev: number | null;
+  changePct: number | null;
+  money: boolean;
+};
+
+export type AnalyticsOverview = {
+  range: { from: string | null; to: string; label: string };
+  kpis: AnalyticsKpi[];
+  statusDistribution: { status: string; count: number }[];
+  byService: { serviceId: string; title: string; count: number; pct: number }[];
+  topProviders: {
+    providerId: string;
+    number: string;
+    name: string;
+    profileImage?: string;
+    earnings: number;
+    jobs: number;
+  }[];
+  topServices: { serviceId: string; title: string; revenue: number; jobs: number }[];
+  openDisputes: number;
+};
+
+export type AnalyticsTrendPoint = { label: string; gross: number; commission: number };
+
+export type AnalyticsBookings = {
+  counts: Record<string, number>;
+  total: number;
+  completionRate: number | null;
+  cancelRate: number | null;
+  nowLater: { now: number; later: number };
+  trend: { date: string; created: number; completed: number }[];
+  cancelledBy: { by: string; count: number }[];
+  byHour: { hour: number; count: number }[];
+  byWeekday: { day: string; count: number }[];
+  recentCancellations: {
+    id: string;
+    customer: string;
+    provider: string;
+    service: string;
+    amount: number;
+    at: string;
+  }[];
+};
+
+export type AnalyticsRevenuePeriod = {
+  date: string;
+  gross: number;
+  commission: number;
+  net: number;
+  jobs: number;
+  tips: number;
+  refunds: number;
+  netRevenue: number;
+};
+
+export type AnalyticsRevenue = {
+  grouping: string;
+  periods: AnalyticsRevenuePeriod[];
+  byService: {
+    serviceId: string;
+    title: string;
+    jobs: number;
+    gross: number;
+    commission: number;
+    net: number;
+  }[];
+  methodSplit: { card: number; wallet: number; splitBookings: number; walletBookings: number };
+  totals: {
+    gross: number;
+    commission: number;
+    net: number;
+    tips: number;
+    refunds: number;
+    netRevenue: number;
+  };
+};
+
+export type AnalyticsProviderRow = {
+  providerId: string;
+  number: string;
+  name: string;
+  profileImage?: string;
+  isOnline: boolean;
+  accountStatus: string;
+  jobs: number;
+  gross: number;
+  commission: number;
+  net: number;
+  tips: number;
+  rating: number | null;
+  ratingCount: number;
+  completionRate: number | null;
+};
+
+export type AnalyticsCustomers = {
+  totalCustomers: number;
+  newSignups: number;
+  signupSeries: { date: string; count: number }[];
+  bookingCustomers: number;
+  repeatCustomers: number;
+  repeatRate: number | null;
+  topCustomers: {
+    customerId: string;
+    name: string;
+    profileImage?: string;
+    bookings: number;
+    spent: number;
+    lastBooking: string;
+  }[];
+  inactiveCount: number | null;
+};
+
+export type AnalyticsServices = {
+  services: {
+    serviceId: string;
+    title: string;
+    basePrice: number | null;
+    isActive: boolean | null;
+    bookings: number;
+    share: number;
+    revenue: number;
+    commission: number;
+  }[];
+  addons: { name: string; times: number; revenue: number }[];
+  attachRate: number | null;
+  totalBookings: number;
+};
+
+export type AnalyticsFinancial = {
+  methodSplit: { card: number; wallet: number; splitBookings: number; walletBookings: number };
+  payoutsByStatus: { status: string; count: number; total: number }[];
+  refundsByStatus: { status: string; count: number; total: number }[];
+  refundsProcessed: { total: number; count: number };
+  paidOut: { total: number; count: number };
+  walletTopups: { total: number; count: number };
+  walletPayments: { total: number; count: number };
+  commissionWithdrawals: { total: number; count: number };
+  stripe: { available: number; pending: number; currency: string } | null;
+};
+
+export type GeneratedReportRow = {
+  id: string;
+  name: string;
+  type: string;
+  groupBy: string;
+  filters: Record<string, string>;
+  rangeLabel: string;
+  rangeFrom: string | null;
+  rangeTo: string | null;
+  format: "pdf" | "xlsx" | "csv";
+  sizeBytes: number;
+  rowCount: number;
+  generatedBy: string | null;
+  createdAt: string;
+};
+
+export type AnalyticsReportPreview = {
+  id: string;
+  name: string;
+  format: string;
+  columns: string[];
+  rows: string[][];
+  totalRows: number;
+  truncated: boolean;
+};
+
+export type GenerateReportPayload = {
+  type: string;
+  format: "pdf" | "xlsx" | "csv";
+  groupBy?: string;
+  range?: string;
+  from?: string;
+  to?: string;
+  filters?: { status?: string; providerId?: string; serviceId?: string; paymentStatus?: string };
+};
+
+const withQuery = (path: string, rangeQuery?: string) =>
+  rangeQuery ? `${path}${rangeQuery.startsWith("?") ? rangeQuery : `?${rangeQuery}`}` : path;
+
+export async function getAnalyticsOverview(rangeQuery?: string) {
+  const response = await api.get<ApiEnvelope<AnalyticsOverview>>(
+    withQuery("/admin/analytics/overview", rangeQuery)
+  );
+  return response.data.data;
+}
+
+export async function getAnalyticsTrend(rangeQuery: string | undefined, grouping: string) {
+  const base = withQuery("/admin/analytics/trend", rangeQuery);
+  const sep = base.includes("?") ? "&" : "?";
+  const response = await api.get<ApiEnvelope<{ grouping: string; series: AnalyticsTrendPoint[] }>>(
+    `${base}${sep}grouping=${grouping}`
+  );
+  return response.data.data;
+}
+
+export async function getAnalyticsBookings(rangeQuery?: string) {
+  const response = await api.get<ApiEnvelope<AnalyticsBookings>>(
+    withQuery("/admin/analytics/bookings", rangeQuery)
+  );
+  return response.data.data;
+}
+
+export async function getAnalyticsRevenue(rangeQuery: string | undefined, grouping: string) {
+  const base = withQuery("/admin/analytics/revenue", rangeQuery);
+  const sep = base.includes("?") ? "&" : "?";
+  const response = await api.get<ApiEnvelope<AnalyticsRevenue>>(
+    `${base}${sep}grouping=${grouping}`
+  );
+  return response.data.data;
+}
+
+export async function getAnalyticsProviders(rangeQuery?: string) {
+  const response = await api.get<ApiEnvelope<{ signupCount: number; leaderboard: AnalyticsProviderRow[] }>>(
+    withQuery("/admin/analytics/providers", rangeQuery)
+  );
+  return response.data.data;
+}
+
+export async function getAnalyticsCustomers(rangeQuery?: string) {
+  const response = await api.get<ApiEnvelope<AnalyticsCustomers>>(
+    withQuery("/admin/analytics/customers", rangeQuery)
+  );
+  return response.data.data;
+}
+
+export async function getAnalyticsServices(rangeQuery?: string) {
+  const response = await api.get<ApiEnvelope<AnalyticsServices>>(
+    withQuery("/admin/analytics/services", rangeQuery)
+  );
+  return response.data.data;
+}
+
+export async function getAnalyticsFinancial(rangeQuery?: string) {
+  const response = await api.get<ApiEnvelope<AnalyticsFinancial>>(
+    withQuery("/admin/analytics/financial", rangeQuery)
+  );
+  return response.data.data;
+}
+
+export async function generateAnalyticsReport(payload: GenerateReportPayload) {
+  const response = await api.post<ApiEnvelope<GeneratedReportRow>>(
+    "/admin/analytics/reports/generate",
+    payload
+  );
+  return response.data.data;
+}
+
+export async function listAnalyticsReports(params: { search?: string; type?: string; page?: number; limit?: number } = {}) {
+  const query = buildQuery({
+    search: params.search?.trim() || undefined,
+    type: params.type || undefined,
+    page: params.page,
+    limit: params.limit,
+  });
+  const response = await api.get<
+    ApiEnvelope<{ reports: GeneratedReportRow[]; pagination: { page: number; limit: number; total: number; pages: number } }>
+  >(`/admin/analytics/reports${query}`);
+  return response.data.data;
+}
+
+export async function downloadAnalyticsReport(id: string) {
+  const response = await api.get(`/admin/analytics/reports/${id}/download`, {
+    responseType: "blob",
+  });
+  return response.data as Blob;
+}
+
+export async function previewAnalyticsReportFile(id: string) {
+  const response = await api.get(`/admin/analytics/reports/${id}/preview`, {
+    responseType: "blob",
+  });
+  return response.data as Blob;
+}
+
+export async function previewAnalyticsReport(id: string) {
+  const response = await api.get<ApiEnvelope<AnalyticsReportPreview>>(
+    `/admin/analytics/reports/${id}/preview`
+  );
+  return response.data.data;
+}
+
+export async function renameAnalyticsReport(id: string, name: string) {
+  const response = await api.patch<ApiEnvelope<GeneratedReportRow>>(
+    `/admin/analytics/reports/${id}`,
+    { name }
+  );
+  return response.data.data;
+}
+
+export async function duplicateAnalyticsReport(id: string) {
+  const response = await api.post<ApiEnvelope<GeneratedReportRow>>(
+    `/admin/analytics/reports/${id}/duplicate`,
+    {}
+  );
+  return response.data.data;
+}
+
+export async function deleteAnalyticsReport(id: string) {
+  const response = await api.delete<ApiEnvelope<{ id: string }>>(
+    `/admin/analytics/reports/${id}`
+  );
+  return response.data.data;
+}
+
+export async function exportAnalyticsTab(tab: string, format: string, rangeQuery?: string) {
+  const base = withQuery("/admin/analytics/export", rangeQuery);
+  const sep = base.includes("?") ? "&" : "?";
+  const response = await api.get(`${base}${sep}tab=${tab}&format=${format}`, {
+    responseType: "blob",
+  });
+  return response.data as Blob;
+}
