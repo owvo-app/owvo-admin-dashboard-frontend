@@ -78,6 +78,37 @@ export const bkTime = (value?: string | null) => {
   return Number.isNaN(d.getTime()) ? "" : londonTimeFmt.format(d);
 };
 
+// Booking ki apni commission — hamesha booking par fix hue rate /
+// snapshot se. Complete booking par asal snapshot amount; pending
+// par usi fix rate se hisaab (completion par rakam yehi kategi).
+// Rate hi na ho (bohat purani booking, backfill se pehle) to null —
+// wahan UI "—" dikhata hai, current rate se andaza nahi lagta.
+export function bkCommissionOf(b: any): {
+  rate: number | null;
+  amount: number | null;
+  net: number | null;
+} {
+  if (!b) return { rate: null, amount: null, net: null };
+  const rate =
+    b.commissionRate != null && b.commissionRate !== ""
+      ? Number(b.commissionRate)
+      : null;
+  const gross = Number(b.finalPrice ?? b.price) || 0;
+  if (b.commissionAmount != null) {
+    const amount = Number(b.commissionAmount) || 0;
+    const net =
+      b.providerNetAmount != null
+        ? Number(b.providerNetAmount) || 0
+        : Math.round((gross - amount) * 100) / 100;
+    return { rate, amount, net };
+  }
+  if (rate != null && gross > 0) {
+    const amount = Math.round(gross * rate * 100) / 100;
+    return { rate, amount, net: Math.round((gross - amount) * 100) / 100 };
+  }
+  return { rate, amount: null, net: null };
+}
+
 export const bkPaymentBadge = (booking: {
   payment?: { status?: string };
   refund?: { status?: string } | null;

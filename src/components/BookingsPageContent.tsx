@@ -33,6 +33,7 @@ import {
   bkCan,
   bkDate,
   bkPaymentBadge,
+  bkCommissionOf,
   bkShortId,
   bkVehicleOf,
   bkTime,
@@ -87,6 +88,7 @@ function BookingRow({
   onAction: (booking: AdminBookingV2, action: BookingActionKind) => void;
 }) {
   const pay = bkPaymentBadge(booking);
+  const commission = bkCommissionOf(booking);
   const customerPhoto = (booking.user as any)?.photo?.url;
   const providerPhoto = (booking.provider as any)?.photo?.url;
   const rating = booking.providerRating;
@@ -165,6 +167,17 @@ function BookingRow({
       </td>
       {canSeeMoney ? (
         <td className="numeric-cell">{money(booking.finalPrice)}</td>
+      ) : null}
+      {canSeeMoney ? (
+        <td className="numeric-cell">
+          {commission.amount == null
+            ? "—"
+            : `${money(commission.amount)}${
+                commission.rate != null
+                  ? ` (${Math.round(commission.rate * 100)}%)`
+                  : ""
+              }`}
+        </td>
       ) : null}
       <td>
         <span className={`bk2-pay ${pay.cls}`}>{pay.label}</span>
@@ -601,6 +614,9 @@ export function BookingsPageContent() {
               <th>Provider</th>
               <th>Service</th>
               {canSeeMoney ? <th className="numeric-cell">Amount</th> : null}
+              {canSeeMoney ? (
+                <th className="numeric-cell">Commission</th>
+              ) : null}
               <th>Payment</th>
               <th>Status</th>
               <th>Actions</th>

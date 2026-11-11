@@ -43,6 +43,7 @@ import {
   bkDateTime,
   bkVehicleOf,
   bkPaymentBadge,
+  bkCommissionOf,
   bkShortId,
   type BookingActionKind,
 } from "./BookingActionModals";
@@ -688,6 +689,7 @@ export function BookingDetailBody({
   }
 
   const pay = bkPaymentBadge(booking);
+  const commission = bkCommissionOf(booking);
   const tabs = [
     { key: "overview", label: "Overview" },
     { key: "timeline", label: "Timeline" },
@@ -1257,6 +1259,23 @@ export function BookingDetailBody({
                 <span>Total</span>
                 <strong>{money(booking.finalPrice)}</strong>
               </div>
+              {commission.amount != null ? (
+                <>
+                  <div className="booking-panel-row">
+                    <span>
+                      OWVO Commission
+                      {commission.rate != null
+                        ? ` (${Math.round(commission.rate * 100)}%)`
+                        : ""}
+                    </span>
+                    <strong>−{money(commission.amount)}</strong>
+                  </div>
+                  <div className="booking-panel-row">
+                    <span>Provider net</span>
+                    <strong>{money(commission.net ?? 0)}</strong>
+                  </div>
+                </>
+              ) : null}
               {booking.tipsTotal ? (
                 <div className="booking-panel-row">
                   <span>Tips paid</span>
