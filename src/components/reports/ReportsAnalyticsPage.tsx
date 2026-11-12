@@ -63,32 +63,32 @@ const STATUS_LABELS: Record<string, string> = {
 const QUICK_REPORTS: { label: string; desc: string; payload: GenerateReportPayload }[] = [
   {
     label: "Daily Performance",
-    desc: "Aaj ki bookings aur performance",
+    desc: "Today's bookings and performance",
     payload: { type: "bookings", format: "csv", groupBy: "day", range: "daily" },
   },
   {
     label: "Provider Payout Summary",
-    desc: "Providers ko kya pay hua",
+    desc: "What providers were paid",
     payload: { type: "payouts", format: "csv", groupBy: "provider" },
   },
   {
     label: "Refunds Report",
-    desc: "Saare refunds ki tafseel",
+    desc: "Full refunds detail",
     payload: { type: "refunds", format: "csv", groupBy: "none" },
   },
   {
     label: "Service Performance",
-    desc: "Kaunsi service kaisi chal rahi hai",
+    desc: "How each service is performing",
     payload: { type: "services", format: "csv", groupBy: "service" },
   },
   {
     label: "Customer Insights",
-    desc: "Top customers aur kharcha",
+    desc: "Top customers and their spending",
     payload: { type: "customers", format: "csv", groupBy: "none" },
   },
   {
     label: "Financial Summary",
-    desc: "Poora mali khulasa",
+    desc: "Complete financial summary",
     payload: { type: "financial", format: "csv", groupBy: "none" },
   },
 ];
@@ -132,14 +132,14 @@ export function ReportsAnalyticsPage() {
 
   const afterGenerated = (row: GeneratedReportRow) => {
     queryClient.invalidateQueries({ queryKey: ["analytics", "reports"] });
-    setNotice(`Report tayyar hai: ${row.name}`);
+    setNotice(`Report ready: ${row.name}`);
     setPreview(row);
   };
 
   const generateMutation = useMutation({
     mutationFn: (payload: GenerateReportPayload) => generateAnalyticsReport(payload),
     onSuccess: afterGenerated,
-    onError: () => setNotice("Report generate nahi ho saki. Dobara koshish karein."),
+    onError: () => setNotice("The report could not be generated. Please try again."),
   });
 
   const runQuick = (payload: GenerateReportPayload) => {
@@ -158,7 +158,7 @@ export function ReportsAnalyticsPage() {
       const blob = await exportAnalyticsTab(tab, format, rangeQuery);
       downloadBlob(blob, `owvo-${tab}-export.${format === "xlsx" ? "xlsx" : format}`);
     } catch {
-      setNotice("Export fail ho gaya. Dobara koshish karein.");
+      setNotice("Export failed. Please try again.");
     }
   };
 
@@ -174,7 +174,7 @@ export function ReportsAnalyticsPage() {
         <div>
           <h1>Reports &amp; Analytics</h1>
           <p className="rep-subtitle">
-            Business performance, revenue aur reports — {dateRange.label}
+            Business performance, revenue and reports — {dateRange.label}
           </p>
         </div>
         <div className="rep-header-actions">
@@ -271,7 +271,7 @@ export function ReportsAnalyticsPage() {
                       loading={trendQuery.isLoading}
                       error={trendQuery.isError ? trendQuery.error : null}
                       empty={!!trendQuery.data && trendQuery.data.series.every((s) => s.gross === 0 && s.commission === 0)}
-                      emptyText="Is range me koi revenue nahi hua."
+                      emptyText="No revenue in this range."
                       onRetry={() => trendQuery.refetch()}
                     >
                       {trendQuery.data ? (
@@ -299,7 +299,7 @@ export function ReportsAnalyticsPage() {
                           centerLabel="Bookings"
                         />
                       ) : (
-                        <div className="rep-state">Is range me koi booking nahi.</div>
+                        <div className="rep-state">No bookings in this range.</div>
                       )}
                     </div>
                     <div className="rep-card">
@@ -320,7 +320,7 @@ export function ReportsAnalyticsPage() {
                           </p>
                         </>
                       ) : (
-                        <div className="rep-state">Is range me koi booking nahi.</div>
+                        <div className="rep-state">No bookings in this range.</div>
                       )}
                     </div>
                   </div>
@@ -355,7 +355,7 @@ export function ReportsAnalyticsPage() {
                           />
                         </div>
                       ) : (
-                        <div className="rep-state">Is range me koi earning nahi hui.</div>
+                        <div className="rep-state">No earnings in this range.</div>
                       )}
                     </div>
                     <div className="rep-card">
@@ -374,7 +374,7 @@ export function ReportsAnalyticsPage() {
                           }))}
                         />
                       ) : (
-                        <div className="rep-state">Is range me koi revenue nahi.</div>
+                        <div className="rep-state">No revenue in this range.</div>
                       )}
                     </div>
                   </div>
@@ -439,7 +439,7 @@ export function ReportsAnalyticsPage() {
                   ))}
                 </div>
               </div>
-              <p className="rep-note">Range: {dateRange.label} (page ka global filter)</p>
+              <p className="rep-note">Range: {dateRange.label} (the page's global filter)</p>
               <button
                 type="button"
                 className="rep-btn rep-btn-yellow rep-btn-block"

@@ -97,7 +97,7 @@ export function StateBlock({
   return <>{children}</>;
 }
 
-/* ── two-series line chart (haath ka bana SVG — koi library nahi) ── */
+/* ── two-series line chart (hand-built SVG — no chart library) ── */
 export function RepLineChart({
   points,
   aName,

@@ -76,7 +76,7 @@ export function BookingsTab({ rq, qk }: Q) {
                 moneyY={false}
               />
             ) : (
-              <div className="rep-state">Is range me koi booking nahi bani.</div>
+              <div className="rep-state">No bookings were created in this range.</div>
             )}
           </div>
 
@@ -108,7 +108,7 @@ export function BookingsTab({ rq, qk }: Q) {
                   }))}
                 />
               ) : (
-                <div className="rep-state">Is range me koi cancellation record nahi.</div>
+                <div className="rep-state">No cancellations were recorded in this range.</div>
               )}
               {d.recentCancellations.length ? (
                 <div className="rep-table-scroll">
@@ -248,7 +248,7 @@ export function RevenueTab({ rq, qk }: Q) {
                 </table>
               </div>
             ) : (
-              <div className="rep-state">Is range me koi completed booking nahi.</div>
+              <div className="rep-state">No completed bookings in this range.</div>
             )}
           </div>
 
@@ -320,7 +320,7 @@ export function ProvidersTab({ rq, qk }: Q) {
       loading={query.isLoading}
       error={query.isError ? query.error : null}
       empty={!!d && d.leaderboard.length === 0}
-      emptyText="Is range me kisi provider ne koi wash complete nahi kiya."
+      emptyText="No provider completed a wash in this range."
       onRetry={() => query.refetch()}
     >
       {d ? (
@@ -329,7 +329,7 @@ export function ProvidersTab({ rq, qk }: Q) {
           <div className="rep-card">
             <div className="rep-card-head">
               <h3>Provider Leaderboard</h3>
-              <span className="rep-note">Earnings ke hisaab se tartib</span>
+              <span className="rep-note">Sorted by earnings</span>
             </div>
             <div className="rep-table-scroll">
               <table className="admin-table rep-table">
@@ -433,7 +433,7 @@ export function CustomersTab({ rq, qk }: Q) {
                     .map((s) => ({ label: s.date, value: s.count, display: String(s.count) }))}
                 />
               ) : (
-                <div className="rep-state">Is range me koi naya signup nahi.</div>
+                <div className="rep-state">No new signups in this range.</div>
               )}
             </div>
             <div className="rep-card">
@@ -488,7 +488,7 @@ export function ServicesTab({ rq, qk }: Q) {
       loading={query.isLoading}
       error={query.isError ? query.error : null}
       empty={!!d && d.services.length === 0}
-      emptyText="Is range me koi booking nahi hui."
+      emptyText="No bookings in this range."
       onRetry={() => query.refetch()}
     >
       {d ? (
@@ -575,7 +575,7 @@ export function ServicesTab({ rq, qk }: Q) {
                 </table>
               </div>
             ) : (
-              <div className="rep-state">Is range me koi add-on nahi laga.</div>
+              <div className="rep-state">No add-ons were added in this range.</div>
             )}
           </div>
         </div>
@@ -624,7 +624,7 @@ export function FinancialTab({ rq, qk }: Q) {
             <div className="rep-mini-card">
               <span>Stripe Balance</span>
               <strong>{d.stripe ? money(d.stripe.available) : "—"}</strong>
-              <em>{d.stripe ? `Pending ${money(d.stripe.pending)} · ${d.stripe.currency}` : "Available nahi"}</em>
+              <em>{d.stripe ? `Pending ${money(d.stripe.pending)} · ${d.stripe.currency}` : "Unavailable"}</em>
             </div>
           </div>
 
@@ -639,7 +639,7 @@ export function FinancialTab({ rq, qk }: Q) {
                   { label: "Wallet", value: d.methodSplit.wallet, display: money(d.methodSplit.wallet) },
                 ]}
               />
-              <p className="rep-note">Completed bookings ki wasooli — Payments &amp; Refunds wala hi ledger.</p>
+              <p className="rep-note">Collections from completed bookings — the same ledger as Payments &amp; Refunds.</p>
             </div>
             <div className="rep-card">
               <div className="rep-card-head">
@@ -667,7 +667,7 @@ export function FinancialTab({ rq, qk }: Q) {
                   </table>
                 </div>
               ) : (
-                <div className="rep-state">Is range me koi payout nahi.</div>
+                <div className="rep-state">No payouts in this range.</div>
               )}
             </div>
           </div>
@@ -698,7 +698,7 @@ export function FinancialTab({ rq, qk }: Q) {
                 </table>
               </div>
             ) : (
-              <div className="rep-state">Is range me koi refund nahi.</div>
+              <div className="rep-state">No refunds in this range.</div>
             )}
           </div>
         </div>

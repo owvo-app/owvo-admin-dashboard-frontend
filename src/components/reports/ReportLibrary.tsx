@@ -113,7 +113,7 @@ export function GenerateReportModal({
       if (currentRange.to) payload.to = currentRange.to;
     } else if (rangeMode === "custom") {
       if (!from || !to) {
-        setError("Custom range ke liye From aur To dono dates chahiyein.");
+        setError("Please select both the From and To dates for a custom range.");
         return;
       }
       payload.from = `${from}T00:00:00.000Z`;
@@ -297,7 +297,7 @@ export function PreviewModal({
         </div>
         {isPdf ? (
           <div className="rep-state">
-            <p>PDF reports browser ke naye tab me khulti hain.</p>
+            <p>PDF reports open in a new browser tab.</p>
             <div className="rep-modal-foot rep-modal-foot-center">
               <button type="button" className="rep-btn rep-btn-yellow" onClick={openPdf}>
                 Open PDF
@@ -312,7 +312,7 @@ export function PreviewModal({
             loading={query.isLoading}
             error={query.isError ? query.error : null}
             empty={!!query.data && query.data.rows.length === 0}
-            emptyText="Is report me koi rows nahi hain."
+            emptyText="This report has no rows."
             onRetry={() => query.refetch()}
           >
             {query.data ? (
@@ -339,8 +339,7 @@ export function PreviewModal({
                 </div>
                 {query.data.truncated ? (
                   <p className="rep-note">
-                    Preview pehli 200 rows dikha raha hai — kul {query.data.totalRows} rows hain. Poori
-                    file ke liye Download karein.
+                    The preview shows the first 200 rows — {query.data.totalRows} rows in total. Download the file for the complete report.
                   </p>
                 ) : null}
                 <div className="rep-modal-foot">
@@ -385,7 +384,7 @@ export function ReportTable({
       const blob = await downloadAnalyticsReport(r.id);
       downloadBlob(blob, fileNameOf(r));
     } catch {
-      setActionError("Download fail ho gaya. Dobara koshish karein.");
+      setActionError("Download failed. Please try again.");
     }
   };
   const renameMutation = useMutation({
@@ -394,12 +393,12 @@ export function ReportTable({
       setRenameOf(null);
       invalidate();
     },
-    onError: () => setActionError("Rename fail ho gaya."),
+    onError: () => setActionError("Rename failed. Please try again."),
   });
   const duplicateMutation = useMutation({
     mutationFn: (id: string) => duplicateAnalyticsReport(id),
     onSuccess: invalidate,
-    onError: () => setActionError("Duplicate fail ho gaya."),
+    onError: () => setActionError("Duplicate failed. Please try again."),
   });
   const deleteMutation = useMutation({
     mutationFn: (id: string) => deleteAnalyticsReport(id),
@@ -407,11 +406,11 @@ export function ReportTable({
       setDeleteOf(null);
       invalidate();
     },
-    onError: () => setActionError("Delete fail ho gaya."),
+    onError: () => setActionError("Delete failed. Please try again."),
   });
 
   if (!reports.length)
-    return <div className="rep-state">Abhi koi report generate nahi hui.</div>;
+    return <div className="rep-state">No reports have been generated yet.</div>;
 
   return (
     <>
@@ -574,7 +573,7 @@ export function ReportTable({
               </button>
             </div>
             <p>
-              “{deleteOf.name}” hamesha ke liye delete ho jayegi. Ye amal wapas nahi ho sakta.
+              “{deleteOf.name}” will be permanently deleted. This cannot be undone.
             </p>
             <div className="rep-modal-foot">
               <button type="button" className="rep-btn" onClick={() => setDeleteOf(null)}>
