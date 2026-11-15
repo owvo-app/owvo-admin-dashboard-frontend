@@ -16,6 +16,10 @@ export type TrackingStatus =
 export type WasherStatus = "online" | "busy" | "offline";
 export type TravelMode = "washer_to_customer" | "customer_to_washer";
 
+/** Panel-standard short booking id (#BXXXXXX) — never the full ObjectId. */
+export const shortBookingId = (id: string): string =>
+  `#B${String(id).slice(-6).toUpperCase()}`;
+
 export interface TrackingBooking {
   id: string;
   status: TrackingStatus;

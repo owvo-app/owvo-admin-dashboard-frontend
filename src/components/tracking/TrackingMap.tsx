@@ -4,6 +4,7 @@
 import { useEffect, useRef } from "react";
 import { fetchDrivingRoute } from "@/lib/tracking-api";
 import {
+  shortBookingId,
   statusMeta,
   type TrackingBooking,
 } from "@/lib/tracking-mock";
@@ -133,7 +134,7 @@ export function TrackingMap({ bookings, selectedId, onSelect }: Props) {
     const meta = statusMeta[b.status];
     infoWindow.current.setContent(`
       <div style="font-family:Arial,sans-serif;min-width:210px;padding:2px">
-        <div style="font-weight:800;font-size:14px;margin-bottom:2px">${b.id} · ${b.service}</div>
+        <div style="font-weight:800;font-size:14px;margin-bottom:2px">${shortBookingId(b.id)} · ${b.service}</div>
         <div style="margin-bottom:6px"><span style="background:${meta.bg};color:${meta.color};font-size:11px;font-weight:700;padding:2px 8px;border-radius:20px">${meta.label}</span></div>
         <div style="font-size:12px;color:#444;margin-bottom:2px">🚗 <b>${b.washerName}</b> · ${b.washerPhone}</div>
         <div style="font-size:12px;color:#444;margin-bottom:2px">👤 ${b.customerName}</div>
@@ -160,7 +161,7 @@ export function TrackingMap({ bookings, selectedId, onSelect }: Props) {
       const washerMarker = new google.maps.Marker({
         position: { lat: b.washerLat, lng: b.washerLng },
         map,
-        title: `${b.washerName} (${b.washerStatus}, ${b.id})`,
+        title: `${b.washerName} (${b.washerStatus}, ${shortBookingId(b.id)})`,
         icon: {
           url: washerSvg(WASHER_COLORS[b.washerStatus] ?? WASHER_COLORS.online),
           scaledSize: new google.maps.Size(32, 42),
@@ -174,30 +175,38 @@ export function TrackingMap({ bookings, selectedId, onSelect }: Props) {
       markers.current.push(washerMarker);
       bounds.extend(washerMarker.getPosition()!);
 
-      // Customer live location — red pin
-      const custMarker = new google.maps.Marker({
-        position: { lat: b.customerLat, lng: b.customerLng },
-        map,
-        title: `${b.customerName} (${b.id})`,
-        icon: {
-          url: customerSvg(),
-          scaledSize: new google.maps.Size(32, 42),
-        },
-      });
-      custMarker.addListener("click", () => {
-        onSelect(b.id);
-        openInfo(b);
-      });
-      markers.current.push(custMarker);
-      bounds.extend(custMarker.getPosition()!);
+      // Customer pin + route ONLY when the customer is actually sharing a
+      // live location — otherwise the pin would sit on the driveway and
+      // falsely suggest the customer is already there.
+      if (b.hasLiveCustomer) {
+        const custMarker = new google.maps.Marker({
+          position: { lat: b.customerLat, lng: b.customerLng },
+          map,
+          title: `${b.customerName} (${shortBookingId(b.id)})`,
+          icon: {
+            url: customerSvg(),
+            scaledSize: new google.maps.Size(32, 42),
+          },
+        });
+        custMarker.addListener("click", () => {
+          onSelect(b.id);
+          openInfo(b);
+        });
+        markers.current.push(custMarker);
+        bounds.extend(custMarker.getPosition()!);
 
-      // Route: customer → washer driveway (real road route via Directions API)
-      // Client ne confirm kiya: hamesha customer travel karta hai.
-      drawRoute(map, b);
+        // Route: customer → washer driveway (real road route via Directions API)
+        drawRoute(map, b);
+      }
     });
 
     if (!selectedRef.current && bookings.length > 0) {
       map.fitBounds(bounds, 40);
+      // A single point makes fitBounds zoom in to rooftop level (a blank
+      // beige map) — cap the zoom at 15.
+      google.maps.event.addListenerOnce(map, "bounds_changed", () => {
+        if ((map.getZoom() ?? 0) > 15) map.setZoom(15);
+      });
     }
   }
 

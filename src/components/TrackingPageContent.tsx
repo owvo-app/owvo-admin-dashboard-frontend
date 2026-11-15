@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useEffect, useMemo, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   CalendarCheck,
   CheckCircle2,
@@ -23,8 +23,14 @@ import {
 import {
   getTrackingLive,
   type ApiTrackingBooking,
+  type TrackingLiveData,
 } from "@/lib/tracking-api";
+import { io } from "socket.io-client";
+import { SOCKET_URL } from "@/lib/api";
+import { getDashboardSocketOptions } from "@/lib/socket";
+import { getStoredUser } from "@/lib/auth-storage";
 import {
+  shortBookingId,
   statusMeta,
   type TrackingBooking,
   type TrackingStatus,
@@ -109,7 +115,7 @@ function BookingCard({
       onClick={onClick}
     >
       <div className="tracking-card-top">
-        <span className="tracking-card-id">{booking.id}</span>
+        <span className="tracking-card-id">{shortBookingId(booking.id)}</span>
         <span
           className="tracking-badge"
           style={{ background: meta.bg, color: meta.color }}
@@ -145,6 +151,7 @@ function BookingCard({
 }
 
 export function TrackingPageContent() {
+  const queryClient = useQueryClient();
   const [filter, setFilter] = useState<TrackingStatus | "all">("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
@@ -163,6 +170,66 @@ export function TrackingPageContent() {
     retry: 1,
     staleTime: 15000,
   });
+
+  // Live updates over the dashboard socket: a customer location update
+  // moves the pin immediately, and any booking change refetches the list.
+  // The 20s polling above stays as a safety net.
+  useEffect(() => {
+    const user = getStoredUser();
+    if (!user?._id) return;
+    const socket = io(SOCKET_URL, getDashboardSocketOptions(user._id));
+    const refresh = () =>
+      queryClient.invalidateQueries({ queryKey: ["tracking-live"] });
+    socket.on("admin_booking_created", refresh);
+    socket.on("admin_booking_status_updated", refresh);
+    socket.on(
+      "admin_customer_location_updated",
+      (p: {
+        bookingId: string;
+        latitude: number;
+        longitude: number;
+        etaMinutes: number | null;
+        distanceMiles: number | null;
+        updatedAt: string;
+      }) => {
+        queryClient.setQueryData<TrackingLiveData>(
+          ["tracking-live"],
+          (old) => {
+            if (!old) return old;
+            const bookings = old.bookings.map((b) =>
+              b.id === p.bookingId
+                ? {
+                    ...b,
+                    customerLat: p.latitude,
+                    customerLng: p.longitude,
+                    etaMinutes: p.etaMinutes,
+                    distanceMiles: p.distanceMiles,
+                    customerLocationUpdatedAt: p.updatedAt,
+                  }
+                : b
+            );
+            const freshSince = Date.now() - 15 * 60 * 1000;
+            const customersTravelling = bookings.filter(
+              (b) =>
+                (b.status === "accepted" || b.status === "ongoing") &&
+                b.customerLat != null &&
+                b.customerLocationUpdatedAt &&
+                new Date(b.customerLocationUpdatedAt).getTime() >= freshSince
+            ).length;
+            return {
+              ...old,
+              bookings,
+              stats: { ...old.stats, customersTravelling },
+            };
+          }
+        );
+      }
+    );
+    return () => {
+      socket.disconnect();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const emptyStats = {
     activeBookings: 0,
