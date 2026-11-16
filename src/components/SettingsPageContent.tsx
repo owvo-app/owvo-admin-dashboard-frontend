@@ -286,7 +286,7 @@ export function SettingsPageContent() {
         <div className="empty-state">
           <Loader2 size={22} /> Loading settings...
         </div>
-      ) : settingsQuery.isError && !settingsQuery.data ? (
+      ) : settingsQuery.isError ? (
         <div className="error-state">
           We could not load the settings. Please check your internet
           connection and try again.
@@ -344,7 +344,7 @@ export function SettingsPageContent() {
               </div>
               <label className="set-field">
                 <span>Current password</span>
-                <input
+                <input autoComplete="current-password"
                   className="modal-input"
                   onChange={(e) => setCurrentPw(e.target.value)}
                   type="password"
@@ -353,7 +353,7 @@ export function SettingsPageContent() {
               </label>
               <label className="set-field">
                 <span>New password</span>
-                <input
+                <input autoComplete="new-password"
                   className="modal-input"
                   onChange={(e) => setNewPw(e.target.value)}
                   type="password"
@@ -362,7 +362,7 @@ export function SettingsPageContent() {
               </label>
               <label className="set-field">
                 <span>Confirm new password</span>
-                <input
+                <input autoComplete="new-password"
                   className="modal-input"
                   onChange={(e) => setConfirmPw(e.target.value)}
                   type="password"

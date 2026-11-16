@@ -305,7 +305,7 @@ function StaffWizard({ meta, editing, onClose, onSaved }: WizardProps) {
             <div className="stf-two">
               <label className="set-field">
                 <span>First Name *</span>
-                <input
+                <input name="stf-first-name" autoComplete="off"
                   className="modal-input"
                   onChange={(e) => setFirstName(e.target.value)}
                   value={firstName}
@@ -313,7 +313,7 @@ function StaffWizard({ meta, editing, onClose, onSaved }: WizardProps) {
               </label>
               <label className="set-field">
                 <span>Last Name</span>
-                <input
+                <input name="stf-last-name" autoComplete="off"
                   className="modal-input"
                   onChange={(e) => setLastName(e.target.value)}
                   value={lastName}
@@ -322,7 +322,7 @@ function StaffWizard({ meta, editing, onClose, onSaved }: WizardProps) {
             </div>
             <label className="set-field">
               <span>Email *</span>
-              <input
+              <input name="stf-email" autoComplete="off"
                 className="modal-input"
                 disabled={isEdit}
                 onChange={(e) => setEmail(e.target.value)}
@@ -332,7 +332,7 @@ function StaffWizard({ meta, editing, onClose, onSaved }: WizardProps) {
             </label>
             <label className="set-field">
               <span>Phone</span>
-              <input
+              <input name="stf-phone" autoComplete="off"
                 className="modal-input"
                 onChange={(e) => setPhone(e.target.value)}
                 placeholder="+44..."
@@ -343,7 +343,7 @@ function StaffWizard({ meta, editing, onClose, onSaved }: WizardProps) {
               <label className="set-field">
                 <span>Password *</span>
                 <span className="password-input-shell">
-                  <input
+                  <input name="stf-new-password" autoComplete="new-password"
                     className="modal-input"
                     onChange={(e) => setPassword(e.target.value)}
                     type={showPw ? "text" : "password"}
@@ -1404,7 +1404,7 @@ export function StaffManagementPageContent() {
             </p>
             <label className="set-field">
               <span>New password</span>
-              <input
+              <input name="stf-reset-password" autoComplete="new-password"
                 className="modal-input"
                 onChange={(e) => setNewPw(e.target.value)}
                 type="password"
@@ -1413,7 +1413,7 @@ export function StaffManagementPageContent() {
             </label>
             <label className="set-field">
               <span>Confirm new password</span>
-              <input
+              <input name="stf-reset-confirm" autoComplete="new-password"
                 className="modal-input"
                 onChange={(e) => setConfirmPw(e.target.value)}
                 type="password"
