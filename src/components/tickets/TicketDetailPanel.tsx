@@ -1,15 +1,18 @@
 "use client";
 
 import {
-  adminReplyToTicket,
-  getAdminTicketById,
+  adminReplyToTicketWithFile,
+  getAdminTicketFull,
+  getTicketAssignees,
+  resolveTicketOutcome,
   updateAdminTicket,
-  type SupportTicket,
+  type SupportTicketFull,
 } from "@/lib/admin-api";
+import { getStoredUser } from "@/lib/auth-storage";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { format, formatDistanceToNow } from "date-fns";
-import { Mail, MessageSquare, Phone, X } from "lucide-react";
-import { useState } from "react";
+import { Mail, MessageSquare, Paperclip, Phone, X } from "lucide-react";
+import { useRef, useState } from "react";
 
 const statusLabels: Record<string, string> = {
   open: "Open",
@@ -27,6 +30,32 @@ const typeLabels: Record<string, string> = {
   payment: "Payment",
 };
 
+const outcomeLabels: Record<string, string> = {
+  refund_full: "Full refund to customer",
+  refund_partial: "Partial refund to customer",
+  release_provider: "Release to provider (no refund)",
+  split: "Split — part refunded, the rest stays with the provider",
+  no_action: "No money action",
+};
+
+const sourceLabels: Record<string, string> = {
+  app: "Support (app)",
+  admin: "Created by admin",
+  report: "Booking — Report an Issue",
+};
+
+function serverMessage(error: unknown) {
+  const e = error as { response?: { data?: { message?: string } }; message?: string };
+  return e?.response?.data?.message || e?.message || "Something went wrong. Please try again.";
+}
+
+function fileSize(bytes?: number) {
+  if (!bytes) return "";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 export function TicketDetailPanel({
   ticketId,
   onClose,
@@ -37,35 +66,81 @@ export function TicketDetailPanel({
   const queryClient = useQueryClient();
   const [tab, setTab] = useState("details");
   const [replyText, setReplyText] = useState("");
+  const [replyFile, setReplyFile] = useState<File | null>(null);
+  const [replyError, setReplyError] = useState("");
   const [adminNotes, setAdminNotes] = useState("");
+  const [outcome, setOutcome] = useState("refund_full");
+  const [outcomeAmount, setOutcomeAmount] = useState("");
+  const [outcomeNote, setOutcomeNote] = useState("");
+  const [outcomeError, setOutcomeError] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const currentUser = getStoredUser();
+  const isAdmin = currentUser?.role === "admin";
 
   const detailQuery = useQuery({
     queryKey: ["admin-ticket-detail", ticketId],
-    queryFn: () => getAdminTicketById(ticketId!),
+    queryFn: () => getAdminTicketFull(ticketId!),
     enabled: !!ticketId,
   });
+
+  const assigneesQuery = useQuery({
+    queryKey: ["ticket-assignees"],
+    queryFn: () => getTicketAssignees(),
+    enabled: !!ticketId,
+  });
+
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: ["admin-tickets"] });
+    queryClient.invalidateQueries({ queryKey: ["admin-ticket-detail", ticketId] });
+  };
 
   const updateMutation = useMutation({
     mutationFn: (data: Parameters<typeof updateAdminTicket>[1]) =>
       updateAdminTicket(ticketId!, data),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["admin-tickets"] });
-      queryClient.invalidateQueries({ queryKey: ["admin-ticket-detail", ticketId] });
-    },
+    onSuccess: invalidate,
   });
 
   const replyMutation = useMutation({
-    mutationFn: (text: string) => adminReplyToTicket(ticketId!, text),
+    mutationFn: () => adminReplyToTicketWithFile(ticketId!, replyText.trim(), replyFile),
     onSuccess: () => {
       setReplyText("");
-      queryClient.invalidateQueries({ queryKey: ["admin-ticket-detail", ticketId] });
+      setReplyFile(null);
+      setReplyError("");
+      invalidate();
     },
+    onError: (e) => setReplyError(serverMessage(e)),
+  });
+
+  const outcomeMutation = useMutation({
+    mutationFn: () =>
+      resolveTicketOutcome(ticketId!, {
+        outcome,
+        amount:
+          outcome === "refund_partial" || outcome === "split"
+            ? Number(outcomeAmount)
+            : undefined,
+        note: outcomeNote.trim() || undefined,
+      }),
+    onSuccess: () => {
+      setOutcomeError("");
+      invalidate();
+    },
+    onError: (e) => setOutcomeError(serverMessage(e)),
   });
 
   if (!ticketId) return null;
 
-  const ticket = detailQuery.data as SupportTicket | undefined;
+  const ticket = detailQuery.data as SupportTicketFull | undefined;
   const tabs = ["Details", "Messages", "Booking", "Resolution"];
+
+  const needsOutcome =
+    !!ticket &&
+    (ticket.type === "dispute" || ticket.type === "refund") &&
+    !!ticket.booking &&
+    !ticket.resolutionOutcome?.type;
+  const isFinished = ticket?.status === "resolved" || ticket?.status === "closed";
+  const outcomeFormVisible = needsOutcome && !isFinished;
 
   const handleSaveNotes = () => {
     updateMutation.mutate({ adminNotes });
@@ -106,7 +181,14 @@ export function TicketDetailPanel({
 
         <div className="booking-panel-body">
           {detailQuery.isLoading && <p>Loading...</p>}
-          {detailQuery.isError && <p className="error-state">Could not load ticket.</p>}
+          {detailQuery.isError && (
+            <div className="error-state">
+              Couldn&apos;t load this ticket. Check your connection and try again.
+              <button className="booking-filter-reset" style={{ marginLeft: 10 }} onClick={() => detailQuery.refetch()} type="button">
+                Retry
+              </button>
+            </div>
+          )}
 
           {ticket && tab === "details" && (
             <>
@@ -153,6 +235,10 @@ export function TicketDetailPanel({
                   <span>Priority</span>
                   <span className={`ticket-priority ${ticket.priority}`}>{ticket.priority}</span>
                 </div>
+                <div className="booking-panel-row">
+                  <span>Source</span>
+                  <strong>{sourceLabels[ticket.source || "app"] || "Support (app)"}</strong>
+                </div>
                 {ticket.assignedTo && (
                   <div className="booking-panel-row"><span>Assigned to</span><strong>{ticket.assignedTo.name}</strong></div>
                 )}
@@ -190,7 +276,18 @@ export function TicketDetailPanel({
                       <strong>{m.sender?.name || m.senderRole}</strong>
                       <span>{m.createdAt ? formatDistanceToNow(new Date(m.createdAt), { addSuffix: true }) : ""}</span>
                     </div>
-                    <p>{m.text}</p>
+                    {m.text ? <p>{m.text}</p> : null}
+                    {m.attachment?.url && m.attachment.type === "image" && (
+                      <a href={m.attachment.url} target="_blank" rel="noreferrer">
+                        <img className="sup-msg-image" src={m.attachment.url} alt={m.attachment.name || "Attachment"} />
+                      </a>
+                    )}
+                    {m.attachment?.url && m.attachment.type !== "image" && (
+                      <a className="sup-msg-file" href={m.attachment.url} target="_blank" rel="noreferrer">
+                        📎 {m.attachment.name || "Attachment"}
+                        {m.attachment.size ? ` (${fileSize(m.attachment.size)})` : ""}
+                      </a>
+                    )}
                   </div>
                 ))}
                 {(!ticket.messages || ticket.messages.length === 0) && (
@@ -205,15 +302,39 @@ export function TicketDetailPanel({
                   onChange={(e) => setReplyText(e.target.value)}
                   rows={3}
                 />
-                <button
-                  className="booking-create-btn"
-                  style={{ marginTop: 8, width: "100%" }}
-                  onClick={() => replyText.trim() && replyMutation.mutate(replyText.trim())}
-                  disabled={replyMutation.isPending || !replyText.trim()}
-                  type="button"
-                >
-                  {replyMutation.isPending ? "Sending..." : "Send Reply"}
-                </button>
+                {replyFile && (
+                  <div className="sup-file-chip">
+                    <span>📎 {replyFile.name} ({fileSize(replyFile.size)})</span>
+                    <button type="button" onClick={() => setReplyFile(null)}>Remove</button>
+                  </div>
+                )}
+                {replyError && <div className="error-state" style={{ marginTop: 8 }}>{replyError}</div>}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*,.pdf"
+                  style={{ display: "none" }}
+                  onChange={(e) => setReplyFile(e.target.files?.[0] || null)}
+                />
+                <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                  <button
+                    className="booking-filter-reset"
+                    onClick={() => fileInputRef.current?.click()}
+                    type="button"
+                    title="Attach an image or PDF (max 12MB)"
+                  >
+                    <Paperclip size={15} /> Attach
+                  </button>
+                  <button
+                    className="booking-create-btn"
+                    style={{ flex: 1 }}
+                    onClick={() => (replyText.trim() || replyFile) && replyMutation.mutate()}
+                    disabled={replyMutation.isPending || (!replyText.trim() && !replyFile)}
+                    type="button"
+                  >
+                    {replyMutation.isPending ? "Sending..." : "Send Reply"}
+                  </button>
+                </div>
               </div>
             </div>
           )}
@@ -228,6 +349,17 @@ export function TicketDetailPanel({
                   {ticket.booking.bookingDate && (
                     <div className="booking-panel-row"><span>Date</span><strong>{format(new Date(ticket.booking.bookingDate), "dd MMM yyyy, hh:mm a")}</strong></div>
                   )}
+                  {typeof ticket.booking.finalPrice === "number" && (
+                    <div className="booking-panel-row"><span>Amount</span><strong>£{ticket.booking.finalPrice.toFixed(2)}</strong></div>
+                  )}
+                  <button
+                    className="booking-create-btn"
+                    style={{ marginTop: 12, width: "100%" }}
+                    onClick={() => { window.location.href = `/bookings?booking=${ticket.booking!._id}`; }}
+                    type="button"
+                  >
+                    Open Booking
+                  </button>
                 </>
               ) : (
                 <p className="table-sub">No booking linked to this ticket.</p>
@@ -239,9 +371,101 @@ export function TicketDetailPanel({
             <div className="booking-panel-section">
               <h4>Resolution</h4>
               <div className="booking-panel-row"><span>Status</span><strong>{statusLabels[ticket.status]}</strong></div>
-              {ticket.resolutionNote && (
-                <p className="ticket-desc">{ticket.resolutionNote}</p>
+
+              {ticket.resolutionOutcome?.type ? (
+                <div className="sup-outcome-box">
+                  <div className="booking-panel-row">
+                    <span>Outcome</span>
+                    <strong>{outcomeLabels[ticket.resolutionOutcome.type] || ticket.resolutionOutcome.type}</strong>
+                  </div>
+                  {(ticket.resolutionOutcome.amount || 0) > 0 && (
+                    <div className="booking-panel-row">
+                      <span>Refunded</span>
+                      <strong>£{(ticket.resolutionOutcome.amount || 0).toFixed(2)}</strong>
+                    </div>
+                  )}
+                  {ticket.resolutionOutcome.decidedBy?.name && (
+                    <div className="booking-panel-row">
+                      <span>Decided by</span>
+                      <strong>{ticket.resolutionOutcome.decidedBy.name}</strong>
+                    </div>
+                  )}
+                  {ticket.resolutionOutcome.decidedAt && (
+                    <div className="booking-panel-row">
+                      <span>Decided</span>
+                      <strong>{format(new Date(ticket.resolutionOutcome.decidedAt), "dd MMM yyyy, hh:mm a")}</strong>
+                    </div>
+                  )}
+                  {ticket.resolutionOutcome.note && (
+                    <p className="ticket-desc">{ticket.resolutionOutcome.note}</p>
+                  )}
+                </div>
+              ) : outcomeFormVisible ? (
+                <div className="sup-outcome-box">
+                  <p className="table-sub" style={{ marginBottom: 10 }}>
+                    This {ticket.type} is linked to a booking, so it needs a money
+                    outcome to finish. The refund runs through Payments &amp; Refunds —
+                    the provider&apos;s held earnings are settled by the outcome.
+                  </p>
+                  <label className="modal-label">Outcome</label>
+                  <select className="modal-input" value={outcome} onChange={(e) => setOutcome(e.target.value)}>
+                    <option value="refund_full">Full refund to customer</option>
+                    <option value="refund_partial">Partial refund to customer</option>
+                    <option value="split">Split — part refunded, rest to provider</option>
+                    <option value="release_provider">Release to provider (no refund)</option>
+                    <option value="no_action">No money action</option>
+                  </select>
+                  {(outcome === "refund_partial" || outcome === "split") && (
+                    <>
+                      <label className="modal-label" style={{ marginTop: 10 }}>Refund amount (£)</label>
+                      <input
+                        className="modal-input"
+                        type="number"
+                        min="0.01"
+                        step="0.01"
+                        value={outcomeAmount}
+                        onChange={(e) => setOutcomeAmount(e.target.value)}
+                        placeholder="e.g. 10.00"
+                      />
+                    </>
+                  )}
+                  {!isAdmin && (
+                    <p className="table-sub" style={{ marginTop: 8 }}>
+                      Refunds above £50 need an admin to decide.
+                    </p>
+                  )}
+                  <label className="modal-label" style={{ marginTop: 10 }}>Note for the customer (optional)</label>
+                  <textarea
+                    className="modal-input"
+                    value={outcomeNote}
+                    onChange={(e) => setOutcomeNote(e.target.value)}
+                    rows={2}
+                    placeholder="Shown as the resolution note"
+                  />
+                  {outcomeError && <div className="error-state" style={{ marginTop: 8 }}>{outcomeError}</div>}
+                  <button
+                    className="booking-create-btn"
+                    style={{ marginTop: 10, width: "100%" }}
+                    onClick={() => outcomeMutation.mutate()}
+                    disabled={
+                      outcomeMutation.isPending ||
+                      ((outcome === "refund_partial" || outcome === "split") &&
+                        !(Number(outcomeAmount) > 0))
+                    }
+                    type="button"
+                  >
+                    {outcomeMutation.isPending ? "Saving..." : "Decide & Resolve Ticket"}
+                  </button>
+                </div>
+              ) : (
+                <>
+                  {ticket.resolutionNote && <p className="ticket-desc">{ticket.resolutionNote}</p>}
+                  {!ticket.resolutionNote && (
+                    <p className="table-sub">No resolution recorded yet.</p>
+                  )}
+                </>
               )}
+
               {ticket.resolvedAt && (
                 <div className="booking-panel-row">
                   <span>Resolved</span>
@@ -262,17 +486,30 @@ export function TicketDetailPanel({
           >
             <option value="open">Open</option>
             <option value="in_progress">In Progress</option>
-            <option value="resolved">Resolved</option>
-            <option value="closed">Closed</option>
+            <option value="resolved" disabled={needsOutcome && !isFinished}>
+              Resolved{needsOutcome && !isFinished ? " (needs outcome)" : ""}
+            </option>
+            <option value="closed" disabled={needsOutcome && !isFinished}>
+              Closed{needsOutcome && !isFinished ? " (needs outcome)" : ""}
+            </option>
           </select>
-          <button
-            className="booking-create-btn"
-            type="button"
-            style={{ flex: 1, padding: "10px 12px" }}
-            onClick={() => alert("Staff assignment coming soon")}
+          <select
+            className="booking-filter-select"
+            style={{ flex: 1 }}
+            value={ticket?.assignedTo?._id || ""}
+            onChange={(e) =>
+              updateMutation.mutate({ assignedTo: e.target.value || null })
+            }
+            disabled={updateMutation.isPending || assigneesQuery.isLoading}
+            title="Assign this ticket"
           >
-            Assign to Staff
-          </button>
+            <option value="">Unassigned</option>
+            {(assigneesQuery.data ?? []).map((a) => (
+              <option key={a._id} value={a._id}>
+                {a.name || a.email || "Staff"}{a.role ? ` (${a.role})` : ""}
+              </option>
+            ))}
+          </select>
         </div>
       </div>
     </div>

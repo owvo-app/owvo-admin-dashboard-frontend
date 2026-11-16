@@ -2592,3 +2592,132 @@ export async function exportAnalyticsTab(tab: string, format: string, rangeQuery
   });
   return response.data as Blob;
 }
+
+
+// ─── Support & Disputes v2 (attachments, outcomes, admin create) ───
+
+export type TicketAttachment = {
+  url: string;
+  type?: string;
+  name?: string;
+  mimeType?: string;
+  size?: number;
+};
+
+export type TicketOutcome = {
+  type: "refund_full" | "refund_partial" | "release_provider" | "split" | "no_action";
+  amount?: number;
+  refund?: { _id: string; amount?: number; status?: string } | string | null;
+  decidedBy?: { _id: string; name?: string; email?: string } | null;
+  decidedAt?: string;
+  note?: string;
+};
+
+export type SupportTicketFull = Omit<SupportTicket, "messages"> & {
+  source?: "app" | "admin" | "report";
+  resolutionOutcome?: TicketOutcome | null;
+  messages?: {
+    sender?: { name?: string; role?: string };
+    senderRole?: string;
+    text?: string;
+    attachment?: TicketAttachment;
+    createdAt?: string;
+  }[];
+};
+
+export type TicketAssignee = {
+  _id: string;
+  name?: string;
+  email?: string;
+  role?: string;
+};
+
+export type TicketUserBooking = {
+  _id: string;
+  bookingDate?: string;
+  status?: string;
+  finalPrice?: number;
+  bookingType?: string;
+};
+
+export async function getAdminTicketsPaged(params?: {
+  status?: string;
+  type?: string;
+  priority?: string;
+  search?: string;
+  page?: number;
+  limit?: number;
+}) {
+  const query = new URLSearchParams();
+  if (params?.status && params.status !== "all") query.set("status", params.status);
+  if (params?.type && params.type !== "all") query.set("type", params.type);
+  if (params?.priority && params.priority !== "all") query.set("priority", params.priority);
+  if (params?.search) query.set("search", params.search);
+  if (params?.page) query.set("page", String(params.page));
+  if (params?.limit) query.set("limit", String(params.limit));
+  const qs = query.toString() ? `?${query.toString()}` : "";
+  const response = await api.get<ApiEnvelope<AdminTicketsResponse>>(`/admin/tickets${qs}`);
+  return response.data.data;
+}
+
+export async function getAdminTicketFull(ticketId: string) {
+  const response = await api.get<ApiEnvelope<SupportTicketFull>>(`/admin/tickets/${ticketId}`);
+  return response.data.data;
+}
+
+export async function createAdminTicket(data: {
+  reporterId: string;
+  subject: string;
+  description: string;
+  type: string;
+  priority?: string;
+  bookingId?: string;
+}) {
+  const response = await api.post<ApiEnvelope<SupportTicketFull>>(`/admin/tickets`, data);
+  return response.data.data;
+}
+
+export async function getTicketAssignees() {
+  const response = await api.get<ApiEnvelope<TicketAssignee[]>>(`/admin/tickets/assignees`);
+  return response.data.data;
+}
+
+export async function getTicketUserBookings(userId: string) {
+  const response = await api.get<ApiEnvelope<TicketUserBooking[]>>(
+    `/admin/tickets/user-bookings?userId=${encodeURIComponent(userId)}`
+  );
+  return response.data.data;
+}
+
+export async function adminReplyToTicketWithFile(
+  ticketId: string,
+  text: string,
+  file?: File | null
+) {
+  if (!file) return adminReplyToTicket(ticketId, text);
+  const formData = new FormData();
+  if (text) formData.append("text", text);
+  formData.append("document", file);
+  const response = await api.post<ApiEnvelope<SupportTicketFull>>(
+    `/admin/tickets/${ticketId}/messages`,
+    formData
+  );
+  return response.data.data;
+}
+
+export async function resolveTicketOutcome(
+  ticketId: string,
+  data: { outcome: string; amount?: number; note?: string }
+) {
+  const response = await api.post<ApiEnvelope<SupportTicketFull>>(
+    `/admin/tickets/${ticketId}/outcome`,
+    data
+  );
+  return response.data.data;
+}
+
+/** Open tickets right now — drives the sidebar badge. */
+export async function getOpenTicketCount() {
+  const data = await getAdminTicketsPaged({ status: "open", page: 1, limit: 1 });
+  return data.statusCounts?.open ?? 0;
+}

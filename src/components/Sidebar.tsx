@@ -1,6 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
+import { getOpenTicketCount } from "@/lib/admin-api";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useDashboardUser } from "@/hooks/useDashboardUser";
 import {
@@ -51,7 +53,7 @@ const navSections: NavSection[] = [
       { key: "dashboard", label: "Dashboard", href: "/dashboard", icon: Gauge },
       { key: "bookings", label: "Bookings", href: "/bookings", icon: CalendarCheck },
       { key: "tracking", label: "Live Tracking", href: "/tracking", icon: Radar },
-      { key: "reports", label: "Support & Disputes", href: "/support-disputes", icon: LifeBuoy, badge: 5 },
+      { key: "support", label: "Support & Disputes", href: "/support-disputes", icon: LifeBuoy },
       { key: "payouts-payments", label: "Payments & Refunds", href: "/payouts-payments", icon: WalletCards },
     ],
   },
@@ -102,6 +104,15 @@ export function Sidebar() {
   const currentTab = searchParams.get("tab") || "campaigns";
   const user = useDashboardUser();
   const isStaff = user?.role === "staff";
+  // Support badge = the real number of open tickets (refreshed on navigation).
+  const [openTickets, setOpenTickets] = useState(0);
+  useEffect(() => {
+    let live = true;
+    getOpenTicketCount()
+      .then((n) => { if (live) setOpenTickets(n); })
+      .catch(() => { /* badge just stays as it was */ });
+    return () => { live = false; };
+  }, [pathname]);
   const visibleSections = navSections
     .map((section) => ({
       ...section,
@@ -123,7 +134,10 @@ export function Sidebar() {
         >
           <Icon aria-hidden="true" />
           <span>{item.label}</span>
-          {item.badge ? <span className="sidebar-badge">{item.badge}</span> : null}
+          {(() => {
+            const badge = item.key === "support" ? openTickets : item.badge;
+            return badge ? <span className="sidebar-badge">{badge}</span> : null;
+          })()}
         </Link>
         {hasChildren && active && (
           <div className="sidebar-submenu">

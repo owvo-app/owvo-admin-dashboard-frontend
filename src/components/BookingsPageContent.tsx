@@ -255,6 +255,13 @@ export function BookingsPageContent() {
   const [limit, setLimit] = useState(10);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [panelBookingId, setPanelBookingId] = useState<string | null>(null);
+
+  // Deep link from elsewhere in the panel (e.g. a support ticket's
+  // "Open Booking" button): /bookings?booking=<id> opens the detail panel.
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get("booking");
+    if (id) setPanelBookingId(id);
+  }, []);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [modal, setModal] = useState<{
     booking: AdminBookingV2;

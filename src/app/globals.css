@@ -6895,3 +6895,13 @@ a {
 .rep-modal-foot { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
 .rep-modal-foot-center { justify-content: center; }
 
+
+
+/* ── Support & Disputes v2 ─────────────────────────────── */
+.sup-pagination { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; border-top: 1px solid var(--border, #e5e7eb); flex-wrap: wrap; }
+.sup-pagination-buttons { display: flex; align-items: center; gap: 10px; }
+.sup-msg-image { display: block; max-width: 220px; max-height: 220px; border-radius: 10px; margin-top: 8px; object-fit: cover; }
+.sup-msg-file { display: inline-block; margin-top: 8px; padding: 8px 12px; border: 1px solid var(--border, #e5e7eb); border-radius: 8px; font-size: 13px; text-decoration: none; }
+.sup-file-chip { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 8px; padding: 8px 12px; border: 1px dashed var(--border, #cbd5e1); border-radius: 8px; font-size: 13px; }
+.sup-file-chip button { background: none; border: none; color: #b91c1c; cursor: pointer; font-size: 13px; }
+.sup-outcome-box { margin-top: 10px; padding: 12px; border: 1px solid var(--border, #e5e7eb); border-radius: 10px; }

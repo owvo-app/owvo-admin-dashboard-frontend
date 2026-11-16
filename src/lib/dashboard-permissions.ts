@@ -10,6 +10,7 @@ export type DashboardMenuKey =
   | "payouts-payments"
   | "earnings"
   | "reports"
+  | "support"
   | "data-requests"
   | "staff-management"
   | "notifications"
@@ -44,7 +45,7 @@ const routeMenuMap: Record<string, DashboardMenuKey> = {
   "/earnings": "earnings",
   "/reports": "reports",
   "/issue-reports": "reports",
-  "/support-disputes": "reports",
+  "/support-disputes": "support",
   "/provider-opportunities": "washers",
   "/reports-analytics": "reports",
   "/data-requests": "data-requests",
@@ -61,7 +62,12 @@ export function getStaffMenus(user: DashboardUser | null | undefined) {
 export function canAccessMenu(user: DashboardUser | null | undefined, menuKey: DashboardMenuKey) {
   if (user?.role === "admin") return true;
   if (user?.role !== "staff") return false;
-  return getStaffMenus(user).includes(menuKey);
+  const menus = getStaffMenus(user);
+  if (menus.includes(menuKey)) return true;
+  // Tickets used to live under the "reports" key — staff who already had
+  // that access keep Support until an admin updates their menus.
+  if (menuKey === "support" && menus.includes("reports")) return true;
+  return false;
 }
 
 export function canAccessPath(user: DashboardUser | null | undefined, pathname: string) {
