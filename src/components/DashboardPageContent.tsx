@@ -55,13 +55,6 @@ function Sparkline({ data, color }: { data: number[]; color: string }) {
   );
 }
 
-function greeting() {
-  const h = new Date().getHours();
-  if (h < 12) return "Good morning";
-  if (h < 17) return "Good afternoon";
-  return "Good evening";
-}
-
 const statusMeta: Record<string, { label: string; className: string }> = {
   pending: { label: "Requested", className: "requested" },
   accepted: { label: "Accepted", className: "accepted" },
@@ -74,7 +67,6 @@ const statusMeta: Record<string, { label: string; className: string }> = {
 export function DashboardPageContent() {
   const dateRange = useDashboardDateRange();
   const user = useDashboardUser();
-  const firstName = user?.name?.split(" ")[0] || "Admin";
 
   const overviewQuery = useQuery({
     queryKey: ["dashboard-overview", dateRange.queryKey],
@@ -274,22 +266,6 @@ export function DashboardPageContent() {
 
   return (
     <div className="dash-new">
-      {/* Greeting header */}
-      <div className="dash-header">
-        <div>
-          <h1>{greeting()}, {firstName}! 👋</h1>
-          <p>Here&apos;s your platform overview and items that need your attention.</p>
-        </div>
-        <div className="dash-header-actions">
-          <button className="dash-date-btn" type="button">
-            📅 {dateRange.label}
-          </button>
-          <button className="dash-export-btn" type="button">
-            ⬇ Export Report
-          </button>
-        </div>
-      </div>
-
       {/* Stat cards */}
       <div className="dash-stats">
         {stats.map((s) => (
