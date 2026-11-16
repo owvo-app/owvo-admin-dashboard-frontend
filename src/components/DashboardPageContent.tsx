@@ -3,7 +3,7 @@
 import { useDashboardDateRange } from "@/hooks/useDashboardDateRange";
 import { useDashboardUser } from "@/hooks/useDashboardUser";
 import {
-  getActivityLogs,
+  getActivityLogsPaged,
   getAdminBookings,
   getAdminPayouts,
   getAdminPayments,
@@ -109,7 +109,7 @@ export function DashboardPageContent() {
   });
   const activityQuery = useQuery({
     queryKey: ["activity-logs", dateRange.queryKey],
-    queryFn: () => getActivityLogs(dateRange.query, 6),
+    queryFn: () => getActivityLogsPaged({ limit: 6 }),
   });
 
   const overview = overviewQuery.data;
@@ -245,7 +245,7 @@ export function DashboardPageContent() {
     { label: "Platform Balance", value: money(overview?.platformBalance || 0), sub: "Available for operations", icon: Landmark, iconClass: "blue" },
   ];
 
-  const recentActivity = (activityQuery.data as any[])?.slice(0, 5) ?? [];
+  const recentActivity = activityQuery.data?.items?.slice(0, 5) ?? [];
 
   return (
     <div className="dash-new">
