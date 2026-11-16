@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { getOpenTicketCount } from "@/lib/admin-api";
+import { getOpenTicketCount, getPendingDataRequestCount } from "@/lib/admin-api";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useDashboardUser } from "@/hooks/useDashboardUser";
 import {
@@ -106,10 +106,17 @@ export function Sidebar() {
   const isStaff = user?.role === "staff";
   // Support badge = the real number of open tickets (refreshed on navigation).
   const [openTickets, setOpenTickets] = useState(0);
+  // Data Requests badge = the real number of requests still waiting for a
+  // decision (GDPR requests carry a 30-day deadline, so they must not sit
+  // unnoticed).
+  const [pendingDataRequests, setPendingDataRequests] = useState(0);
   useEffect(() => {
     let live = true;
     getOpenTicketCount()
       .then((n) => { if (live) setOpenTickets(n); })
+      .catch(() => { /* badge just stays as it was */ });
+    getPendingDataRequestCount()
+      .then((n) => { if (live) setPendingDataRequests(n); })
       .catch(() => { /* badge just stays as it was */ });
     return () => { live = false; };
   }, [pathname]);
@@ -135,7 +142,12 @@ export function Sidebar() {
           <Icon aria-hidden="true" />
           <span>{item.label}</span>
           {(() => {
-            const badge = item.key === "support" ? openTickets : item.badge;
+            const badge =
+              item.key === "support"
+                ? openTickets
+                : item.key === "data-requests"
+                  ? pendingDataRequests
+                  : item.badge;
             return badge ? <span className="sidebar-badge">{badge}</span> : null;
           })()}
         </Link>

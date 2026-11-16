@@ -2721,3 +2721,79 @@ export async function getOpenTicketCount() {
   const data = await getAdminTicketsPaged({ status: "open", page: 1, limit: 1 });
   return data.statusCounts?.open ?? 0;
 }
+
+
+
+/* ------------------------------------------------------------------ */
+/* Data Requests v2 (GDPR): paged list with status counts, proper      */
+/* requester names (dashboard accounts use `name`, app users use       */
+/* `fullName` — always carry both), due dates, deletion records, and   */
+/* the approved-export download.                                       */
+/* ------------------------------------------------------------------ */
+
+export type DataRequestUser = {
+  _id: string;
+  name?: string;
+  fullName?: string;
+  email?: string;
+  role?: string;
+  phoneNumber?: string;
+  photo?: { public_id?: string; url?: string } | null;
+  accountStatus?: string;
+};
+
+export type AdminDataRequestFull = Omit<
+  AdminDataRequest,
+  "user" | "reviewedBy"
+> & {
+  requestType?: "export" | "deletion";
+  dueAt?: string;
+  user?: DataRequestUser;
+  reviewedBy?: DataRequestUser;
+};
+
+export type AdminDataRequestsResponse = {
+  items: AdminDataRequestFull[];
+  total: number;
+  page: number;
+  limit: number;
+  statusCounts: {
+    total: number;
+    pending: number;
+    approved: number;
+    rejected: number;
+    overdue: number;
+  };
+};
+
+export async function getAdminDataRequestsPaged(params: {
+  status?: string;
+  search?: string;
+  page?: number;
+  limit?: number;
+}) {
+  const query = new URLSearchParams();
+  if (params.status && params.status !== "all") query.set("status", params.status);
+  if (params.search) query.set("search", params.search);
+  if (params.page) query.set("page", String(params.page));
+  if (params.limit) query.set("limit", String(params.limit));
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+  const response = await api.get<ApiEnvelope<AdminDataRequestsResponse>>(
+    `/admin/data-requests${suffix}`
+  );
+  return response.data.data;
+}
+
+export async function downloadDataRequestExport(requestId: string) {
+  const response = await api.get<Blob>(
+    `/admin/data-requests/${requestId}/export`,
+    { responseType: "blob" }
+  );
+  return response.data;
+}
+
+// Sidebar badge: how many data requests are still waiting for a decision.
+export async function getPendingDataRequestCount() {
+  const data = await getAdminDataRequestsPaged({ status: "pending", page: 1, limit: 1 });
+  return data?.statusCounts?.pending ?? 0;
+}

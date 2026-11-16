@@ -1,4 +1,4 @@
-import { DataRequestsPageContent } from "@/components/OperationsPages";
+import { DataRequestsPageContent } from "@/components/DataRequestsPageContent";
 
 export default function DataRequestsPage() {
   return <DataRequestsPageContent />;
