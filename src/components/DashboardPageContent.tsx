@@ -13,6 +13,7 @@ import {
   getRecentBookings,
   getWashers,
   type AdminBooking,
+  type DashboardRevenuePoint,
 } from "@/lib/admin-api";
 import { compactMoney, money } from "@/lib/format";
 import { useQuery } from "@tanstack/react-query";
@@ -34,7 +35,7 @@ import {
   WalletCards,
 } from "lucide-react";
 import Link from "next/link";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 
 // Simple SVG sparkline
 function Sparkline({ data, color }: { data: number[]; color: string }) {
@@ -83,6 +84,30 @@ export function DashboardPageContent() {
     queryKey: ["dashboard-revenue", dateRange.queryKey],
     queryFn: () => getDashboardRevenue(dateRange.range, dateRange.query),
   });
+  // Revenue card: its own Daily/Weekly/Monthly/Yearly tabs, independent
+  // of the Topbar range. Daily = today by hour, Weekly = this week by
+  // day, Monthly = this month by day, Yearly = this year by month.
+  const [revTab, setRevTab] = useState<"daily" | "weekly" | "monthly" | "yearly">("weekly");
+  const cardRevenueQuery = useQuery({
+    queryKey: ["dashboard-revenue-card", revTab],
+    queryFn: () => getDashboardRevenue(revTab, { range: revTab }),
+  });
+  const cardPoints = cardRevenueQuery.data ?? [];
+  const cardRevenueTotal = cardPoints.reduce((sum, p) => sum + (p.revenue || 0), 0);
+  const cardBookingsTotal = cardPoints.reduce((sum, p) => sum + (p.bookings || 0), 0);
+  const cardBarLabel = (point: DashboardRevenuePoint) => {
+    if (revTab === "daily") {
+      const d = new Date(point.date);
+      return Number.isNaN(d.getTime()) ? point.label || "" : format(d, "HH:00");
+    }
+    if (revTab === "yearly") {
+      const d = new Date(`${point.date}-01T00:00:00`);
+      return Number.isNaN(d.getTime()) ? point.label || "" : format(d, "MMM");
+    }
+    const d = new Date(`${point.date}T00:00:00`);
+    return Number.isNaN(d.getTime()) ? point.label || "" : format(d, "MMM d");
+  };
+
   const bookingsQuery = useQuery({
     queryKey: ["admin-bookings-all", dateRange.queryKey],
     queryFn: () => getAdminBookings("all", dateRange.query),
@@ -330,27 +355,64 @@ export function DashboardPageContent() {
           <div className="dash-card-head">
             <h3>📊 Revenue Overview</h3>
             <div className="dash-tabs">
-              {["Daily", "Weekly", "Monthly", "Yearly"].map((t) => (
-                <button key={t} type="button" className={t === "Daily" ? "active" : ""}>{t}</button>
+              {(
+                [
+                  { key: "daily", label: "Daily" },
+                  { key: "weekly", label: "Weekly" },
+                  { key: "monthly", label: "Monthly" },
+                  { key: "yearly", label: "Yearly" },
+                ] as const
+              ).map((tab) => (
+                <button
+                  key={tab.key}
+                  type="button"
+                  className={revTab === tab.key ? "active" : ""}
+                  onClick={() => setRevTab(tab.key)}
+                >
+                  {tab.label}
+                </button>
               ))}
             </div>
           </div>
           <div className="dash-revenue-total">
-            {money(overview?.totalRevenue || 0)}
-            <span className="dash-stat-change up">↑ 18% vs last week</span>
+            {money(cardRevenueTotal)}
+            <span className="dash-muted">
+              {cardBookingsTotal} completed booking{cardBookingsTotal === 1 ? "" : "s"}
+            </span>
           </div>
-          <p className="dash-muted">Total service revenue</p>
+          <p className="dash-muted">
+            Total service revenue ·{" "}
+            {revTab === "daily"
+              ? "Today by hour"
+              : revTab === "weekly"
+                ? "This week by day"
+                : revTab === "monthly"
+                  ? "This month by day"
+                  : "This year by month"}
+          </p>
           {/* Simple bar visualization */}
           <div className="dash-bars">
-            {(sparkData.revenue.length ? sparkData.revenue : [0]).map((v, i) => (
-              <div key={i} className="dash-bar-wrap">
-                <div
-                  className="dash-bar"
-                  style={{ height: `${Math.max(4, (v / Math.max(...sparkData.revenue, 1)) * 100)}%` }}
-                />
-                <span>{format(new Date(Date.now() - (6 - i) * 864e5), "MMM d")}</span>
-              </div>
-            ))}
+            {cardRevenueQuery.isError ? (
+              <p className="dash-muted">Could not load revenue for this period.</p>
+            ) : cardPoints.length ? (
+              cardPoints.map((point, i) => (
+                <div key={i} className="dash-bar-wrap">
+                  <div
+                    className="dash-bar"
+                    style={{
+                      height: `${Math.max(4, ((point.revenue || 0) / Math.max(...cardPoints.map((p) => p.revenue || 0), 1)) * 100)}%`,
+                    }}
+                  />
+                  <span>{cardBarLabel(point)}</span>
+                </div>
+              ))
+            ) : (
+              <p className="dash-muted">
+                {cardRevenueQuery.isLoading
+                  ? "Loading..."
+                  : "No completed bookings in this period."}
+              </p>
+            )}
           </div>
         </div>
         <div className="dash-card">
