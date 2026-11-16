@@ -2797,3 +2797,68 @@ export async function getPendingDataRequestCount() {
   const data = await getAdminDataRequestsPaged({ status: "pending", page: 1, limit: 1 });
   return data?.statusCounts?.pending ?? 0;
 }
+
+
+
+/* ------------------------------------------------------------------ */
+/* Notifications feed v2: support tickets + data requests included,    */
+/* type filter, real pagination, and a real "unread" count based on    */
+/* when the admin last opened the Notifications page (this browser).   */
+/* ------------------------------------------------------------------ */
+
+export type AdminFeedItem = AdminNotification & {
+  link?: string;
+  entityId?: string;
+};
+
+export type AdminNotificationsFeed = {
+  items: AdminFeedItem[];
+  total: number;
+  page: number;
+  limit: number;
+  typeCounts: Record<string, number>;
+};
+
+export async function getAdminNotificationsFeed(params: {
+  type?: string;
+  page?: number;
+  limit?: number;
+}) {
+  const query = new URLSearchParams();
+  query.set("range", "all");
+  if (params.type && params.type !== "all") query.set("type", params.type);
+  if (params.page) query.set("page", String(params.page));
+  if (params.limit) query.set("limit", String(params.limit));
+  const response = await api.get<ApiEnvelope<AdminNotificationsFeed>>(
+    `/admin/notifications?${query.toString()}`
+  );
+  return response.data.data;
+}
+
+const NOTIFICATIONS_LAST_SEEN_KEY = "owvo_notifications_last_seen";
+
+export function getNotificationsLastSeen(): number {
+  try {
+    return Number(localStorage.getItem(NOTIFICATIONS_LAST_SEEN_KEY)) || 0;
+  } catch {
+    return 0;
+  }
+}
+
+export function markNotificationsSeen() {
+  try {
+    localStorage.setItem(NOTIFICATIONS_LAST_SEEN_KEY, String(Date.now()));
+  } catch {
+    // Private mode etc. — the badge just keeps its previous behaviour.
+  }
+}
+
+// Bell + sidebar badge: how many feed items are newer than the last
+// time the Notifications page was opened in this browser.
+export async function getNotificationsUnreadCount() {
+  const seen = getNotificationsLastSeen();
+  const feed = await getAdminNotificationsFeed({ page: 1, limit: 50 });
+  return (feed?.items ?? []).filter(
+    (item) => item.createdAt && new Date(item.createdAt).getTime() > seen
+  ).length;
+}

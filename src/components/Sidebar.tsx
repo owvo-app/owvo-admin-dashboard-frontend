@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { getOpenTicketCount, getPendingDataRequestCount } from "@/lib/admin-api";
+import { getNotificationsUnreadCount, getOpenTicketCount, getPendingDataRequestCount } from "@/lib/admin-api";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useDashboardUser } from "@/hooks/useDashboardUser";
 import {
@@ -91,7 +91,7 @@ const navSections: NavSection[] = [
     items: [
       { key: "data-requests", label: "Data Requests", href: "/data-requests", icon: Database },
       { key: "staff-management", label: "Staff Management", href: "/staff-management", icon: UsersRound },
-      { key: "notifications", label: "Notifications", href: "/notifications", icon: Bell, badge: 3 },
+      { key: "notifications", label: "Notifications", href: "/notifications", icon: Bell },
       { key: "settings", label: "Settings", href: "/settings", icon: Settings },
       { key: "system-logs", label: "System Logs", href: "/system-logs", icon: BookOpenCheck },
     ],
@@ -110,6 +110,10 @@ export function Sidebar() {
   // decision (GDPR requests carry a 30-day deadline, so they must not sit
   // unnoticed).
   const [pendingDataRequests, setPendingDataRequests] = useState(0);
+  // Notifications badge = activity newer than the last time the
+  // Notifications page was opened in this browser (replaces the old
+  // hardcoded "3").
+  const [unreadNotifications, setUnreadNotifications] = useState(0);
   useEffect(() => {
     let live = true;
     getOpenTicketCount()
@@ -117,6 +121,9 @@ export function Sidebar() {
       .catch(() => { /* badge just stays as it was */ });
     getPendingDataRequestCount()
       .then((n) => { if (live) setPendingDataRequests(n); })
+      .catch(() => { /* badge just stays as it was */ });
+    getNotificationsUnreadCount()
+      .then((n) => { if (live) setUnreadNotifications(n); })
       .catch(() => { /* badge just stays as it was */ });
     return () => { live = false; };
   }, [pathname]);
@@ -147,7 +154,9 @@ export function Sidebar() {
                 ? openTickets
                 : item.key === "data-requests"
                   ? pendingDataRequests
-                  : item.badge;
+                  : item.key === "notifications"
+                    ? unreadNotifications
+                    : item.badge;
             return badge ? <span className="sidebar-badge">{badge}</span> : null;
           })()}
         </Link>

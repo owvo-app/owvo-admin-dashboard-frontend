@@ -8,7 +8,7 @@ import { SOCKET_URL } from "@/lib/api";
 import { clearDashboardSession } from "@/lib/auth-storage";
 import { getDashboardSocketOptions } from "@/lib/socket";
 import { canAccessMenu } from "@/lib/dashboard-permissions";
-import { getAdminNotifications, logoutDashboard } from "@/lib/admin-api";
+import { getNotificationsUnreadCount, logoutDashboard } from "@/lib/admin-api";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Bell, CalendarDays, ChevronDown, Database, FileText, LogOut } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -32,13 +32,16 @@ export function Topbar() {
   const canReadNotifications = canAccessMenu(user, "notifications");
   const canReadReports = canAccessMenu(user, "reports");
   const canReadDataRequests = canAccessMenu(user, "data-requests");
+  // Bell badge = activity newer than the last time the Notifications
+  // page was opened in this browser (a real unread count, not the size
+  // of the feed).
   const notificationsQuery = useQuery({
-    queryKey: ["admin-notifications-topbar", dateRange.queryKey],
-    queryFn: () => getAdminNotifications(dateRange.query),
+    queryKey: ["admin-notifications-unread"],
+    queryFn: () => getNotificationsUnreadCount(),
     enabled: canReadNotifications,
     refetchInterval: 30000,
   });
-  const count = notificationsQuery.data?.length || 0;
+  const count = notificationsQuery.data || 0;
 
   useEffect(() => {
     if (!canReadNotifications) return;
@@ -46,13 +49,15 @@ export function Topbar() {
     const socket = io(SOCKET_URL, getDashboardSocketOptions(user?._id));
     const refresh = () => {
       queryClient.invalidateQueries({ queryKey: ["admin-notifications"] });
-      queryClient.invalidateQueries({ queryKey: ["admin-notifications-topbar"] });
+      queryClient.invalidateQueries({ queryKey: ["admin-notifications-unread"] });
     };
 
     socket.on("admin_activity_log_created", refresh);
     socket.on("admin_booking_created", refresh);
     socket.on("admin_booking_status_updated", refresh);
     socket.on("admin_payout_updated", refresh);
+    socket.on("admin_ticket_created", refresh);
+    socket.on("admin_data_request_created", refresh);
 
     return () => {
       socket.off("admin_activity_log_created", refresh);
@@ -131,7 +136,7 @@ export function Topbar() {
         </button>
         <Link className="icon-button" aria-label="Notifications" href="/notifications">
           <Bell size={18} />
-          {count ? <span className="notification-badge">{Math.min(count, 9)}</span> : null}
+          {count ? <span className="notification-badge">{count > 99 ? "99+" : count}</span> : null}
         </Link>
         <button className="logout-button" onClick={logout} type="button">
           <LogOut size={16} />
