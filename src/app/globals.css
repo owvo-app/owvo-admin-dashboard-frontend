@@ -6949,3 +6949,108 @@ a {
 .nt-new-pill { display: inline-block; margin-left: 8px; padding: 1px 7px; border-radius: 999px; background: #ef1d32; color: #fff; font-size: 10.5px; font-weight: 800; letter-spacing: 0.03em; text-transform: uppercase; vertical-align: middle; }
 .nt-unread-dot { width: 9px; height: 9px; border-radius: 50%; background: #ef1d32; flex-shrink: 0; margin-top: 6px; }
 .nt-load-more { display: flex; justify-content: center; padding: 16px 0 4px; }
+
+
+
+/* ------------------------------------------------------------------ */
+/* Settings v2 — sections as cards, per-section feedback.              */
+/* ------------------------------------------------------------------ */
+.set-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(430px, 1fr));
+  gap: 16px;
+  align-items: start;
+}
+.set-card {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  padding: 20px;
+}
+.set-card-head h2 {
+  font-size: 17px;
+  margin: 0 0 4px;
+}
+.set-card-head p {
+  color: #64748b;
+  font-size: 13px;
+  margin: 0 0 16px;
+}
+.set-field {
+  display: block;
+  margin-bottom: 12px;
+}
+.set-field > span {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.set-note {
+  color: #64748b;
+  font-size: 12.5px;
+  margin: -4px 0 12px;
+}
+.set-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  font-size: 13.5px;
+  margin-bottom: 12px;
+  cursor: pointer;
+}
+.set-toggle input {
+  margin-top: 2px;
+}
+.set-success {
+  background: #ecfdf5;
+  border: 1px solid #a7f3d0;
+  border-radius: 8px;
+  color: #065f46;
+  font-size: 13px;
+  padding: 9px 12px;
+}
+.set-error {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  color: #991b1b;
+  font-size: 13px;
+  padding: 9px 12px;
+}
+.set-card-foot {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 14px;
+}
+.set-kv {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 14px;
+  font-size: 13.5px;
+  margin: 4px 0 8px;
+}
+.set-kv dt {
+  color: #64748b;
+}
+.set-kv dd {
+  font-weight: 600;
+  margin: 0;
+}
+
+/* ------------------------------------------------------------------ */
+/* System Logs v2 — filter row.                                        */
+/* ------------------------------------------------------------------ */
+.slog-filters {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.slog-entity-select {
+  max-width: 220px;
+  width: auto;
+}

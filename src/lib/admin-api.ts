@@ -2862,3 +2862,81 @@ export async function getNotificationsUnreadCount() {
     (item) => item.createdAt && new Date(item.createdAt).getTime() > seen
   ).length;
 }
+
+
+
+/* ------------------------------------------------------------------ */
+/* Settings v2 + System Logs v2: alert settings, last-updated info,    */
+/* change password, test alert email, and paged/searchable logs.       */
+/* ------------------------------------------------------------------ */
+
+export type PlatformSettingsV2 = PlatformSettings & {
+  alertOnNewTicket?: boolean;
+  alertOnDataRequest?: boolean;
+  alertOnPayoutFailed?: boolean;
+  adminAlertEmail?: string;
+  updatedAt?: string;
+  updatedBy?:
+    | { _id: string; name?: string; fullName?: string; email?: string }
+    | string
+    | null;
+};
+
+export async function getDashboardSettingsV2() {
+  const response = await api.get<ApiEnvelope<PlatformSettingsV2>>("/admin/settings");
+  return response.data.data;
+}
+
+export async function updateDashboardSettingsV2(
+  payload: Partial<PlatformSettingsV2>
+) {
+  const response = await api.patch<ApiEnvelope<PlatformSettingsV2>>(
+    "/admin/settings",
+    payload
+  );
+  return response.data.data;
+}
+
+export async function sendSettingsTestAlertEmail() {
+  const response = await api.post<ApiEnvelope<{ to: string }>>(
+    "/admin/settings/test-alert-email"
+  );
+  return response.data.data;
+}
+
+export async function changeAdminPassword(payload: {
+  oldPassword: string;
+  newPassword: string;
+}) {
+  const response = await api.post<ApiEnvelope<unknown>>(
+    "/auth/change-password",
+    payload
+  );
+  return response.data;
+}
+
+export type AdminLogsResponse = {
+  items: ActivityLog[];
+  total: number;
+  page: number;
+  limit: number;
+  entityTypes: string[];
+};
+
+export async function getActivityLogsPaged(params: {
+  search?: string;
+  entityType?: string;
+  page?: number;
+  limit?: number;
+}) {
+  const query = new URLSearchParams();
+  query.set("range", "all");
+  if (params.search) query.set("search", params.search);
+  if (params.entityType) query.set("entityType", params.entityType);
+  if (params.page) query.set("page", String(params.page));
+  if (params.limit) query.set("limit", String(params.limit));
+  const response = await api.get<ApiEnvelope<AdminLogsResponse>>(
+    `/admin/activity-logs?${query.toString()}`
+  );
+  return response.data.data;
+}
