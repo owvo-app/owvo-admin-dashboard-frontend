@@ -151,7 +151,7 @@ export function NotificationsPageContent() {
         <div className="empty-state">
           <Loader2 size={22} /> Loading notifications...
         </div>
-      ) : feedQuery.isError && page === 1 ? (
+      ) : feedQuery.isError && page === 1 && !feedQuery.data ? (
         <div className="error-state">
           We could not load notifications. Please check your internet
           connection and try again.

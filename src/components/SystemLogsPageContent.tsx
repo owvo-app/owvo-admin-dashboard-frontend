@@ -228,7 +228,7 @@ export function SystemLogsPageContent() {
           <div className="empty-state">
             <Loader2 size={22} /> Loading system logs...
           </div>
-        ) : logsQuery.isError ? (
+        ) : logsQuery.isError && items.length === 0 ? (
           <div className="error-state">
             We could not load the system logs. Please check your internet
             connection and try again.

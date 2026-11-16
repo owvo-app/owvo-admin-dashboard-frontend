@@ -286,7 +286,7 @@ export function SettingsPageContent() {
         <div className="empty-state">
           <Loader2 size={22} /> Loading settings...
         </div>
-      ) : settingsQuery.isError ? (
+      ) : settingsQuery.isError && !settingsQuery.data ? (
         <div className="error-state">
           We could not load the settings. Please check your internet
           connection and try again.
