@@ -157,7 +157,7 @@ function StaffWizard({ meta, editing, onClose, onSaved }: WizardProps) {
 
   const optionsQuery = useQuery({
     queryKey: ["staff-options"],
-    queryFn: () => getStaffAccountsV2({ limit: 100 }),
+    queryFn: () => getStaffAccountsV2({ limit: 100, includeAdmins: true }),
   });
   const managerOptions = (optionsQuery.data?.items || []).filter(
     (s) => s._id !== editing?._id
@@ -463,7 +463,7 @@ function StaffWizard({ meta, editing, onClose, onSaved }: WizardProps) {
                 <option value="">— None —</option>
                 {managerOptions.map((s) => (
                   <option key={s._id} value={s._id}>
-                    {staffName(s)} ({s.email})
+                    {staffName(s)} ({s.email}){s.role === "admin" ? " — Admin" : ""}
                   </option>
                 ))}
               </select>
@@ -898,6 +898,8 @@ export function StaffManagementPageContent() {
   const [newPw, setNewPw] = useState("");
   const [confirmPw, setConfirmPw] = useState("");
   const [resetBusy, setResetBusy] = useState(false);
+  const [showResetPw, setShowResetPw] = useState(false);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [resetError, setResetError] = useState("");
   const [confirmAction, setConfirmAction] = useState<{
     kind: "deactivate" | "activate" | "delete";
@@ -1404,21 +1406,39 @@ export function StaffManagementPageContent() {
             </p>
             <label className="set-field">
               <span>New password</span>
-              <input name="stf-reset-password" autoComplete="new-password"
-                className="modal-input"
-                onChange={(e) => setNewPw(e.target.value)}
-                type="password"
-                value={newPw}
-              />
+              <span className="password-input-shell">
+                <input name="stf-reset-password" autoComplete="new-password"
+                  className="modal-input"
+                  onChange={(e) => setNewPw(e.target.value)}
+                  type={showResetPw ? "text" : "password"}
+                  value={newPw}
+                />
+                <button
+                  aria-label={showResetPw ? "Hide password" : "Show password"}
+                  onClick={() => setShowResetPw((v) => !v)}
+                  type="button"
+                >
+                  {showResetPw ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </span>
             </label>
             <label className="set-field">
               <span>Confirm new password</span>
-              <input name="stf-reset-confirm" autoComplete="new-password"
-                className="modal-input"
-                onChange={(e) => setConfirmPw(e.target.value)}
-                type="password"
-                value={confirmPw}
-              />
+              <span className="password-input-shell">
+                <input name="stf-reset-confirm" autoComplete="new-password"
+                  className="modal-input"
+                  onChange={(e) => setConfirmPw(e.target.value)}
+                  type={showResetConfirm ? "text" : "password"}
+                  value={confirmPw}
+                />
+                <button
+                  aria-label={showResetConfirm ? "Hide password" : "Show password"}
+                  onClick={() => setShowResetConfirm((v) => !v)}
+                  type="button"
+                >
+                  {showResetConfirm ? <EyeOff size={16} /> : <Eye size={16} />}
+                </button>
+              </span>
             </label>
             {resetError ? <p className="set-error">{resetError}</p> : null}
             <div className="stf-modal-foot">

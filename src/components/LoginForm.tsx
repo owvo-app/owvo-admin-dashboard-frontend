@@ -4,12 +4,14 @@ import { loginDashboard } from "@/lib/admin-api";
 import { storeDashboardSession } from "@/lib/auth-storage";
 import { getDefaultDashboardHref } from "@/lib/dashboard-permissions";
 import { useRouter } from "next/navigation";
+import { Eye, EyeOff } from "lucide-react";
 import { FormEvent, useState } from "react";
 
 export function LoginForm() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -66,16 +68,25 @@ export function LoginForm() {
       </div>
       <div className="field">
         <label htmlFor="password">Password</label>
-        <input
-          autoComplete="current-password"
-          id="password"
-          name="password"
-          onChange={(event) => setPassword(event.target.value)}
-          placeholder="Password"
-          required
-          type="password"
-          value={password}
-        />
+        <span className="password-input-shell">
+          <input
+            autoComplete="current-password"
+            id="password"
+            name="password"
+            onChange={(event) => setPassword(event.target.value)}
+            placeholder="Password"
+            required
+            type={showPassword ? "text" : "password"}
+            value={password}
+          />
+          <button
+            aria-label={showPassword ? "Hide password" : "Show password"}
+            onClick={() => setShowPassword((value) => !value)}
+            type="button"
+          >
+            {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+          </button>
+        </span>
       </div>
       {error ? <p className="form-error">{error}</p> : null}
       <button className="primary-button" disabled={loading} type="submit">

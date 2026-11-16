@@ -2994,6 +2994,7 @@ export async function getStaffAccountsV2(params: {
   status?: string;
   page?: number;
   limit?: number;
+  includeAdmins?: boolean;
 }) {
   const query = new URLSearchParams();
   if (params.search) query.set("search", params.search);
@@ -3002,6 +3003,7 @@ export async function getStaffAccountsV2(params: {
   if (params.status) query.set("status", params.status);
   if (params.page) query.set("page", String(params.page));
   if (params.limit) query.set("limit", String(params.limit));
+  if (params.includeAdmins) query.set("includeAdmins", "true");
   const response = await api.get<ApiEnvelope<StaffListResponse>>(
     `/admin/staff?${query.toString()}`
   );

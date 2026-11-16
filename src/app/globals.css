@@ -7339,3 +7339,14 @@ a {
 }
 .stf-note-form { margin-bottom: 14px; }
 .stf-note-form .booking-create-btn { margin-top: 8px; }
+
+
+
+/* Staff form validation */
+.stf-invalid { border-color: #dc2626 !important; }
+.stf-field-error {
+  color: #b91c1c;
+  display: block;
+  font-size: 12px;
+  margin-top: 4px;
+}
