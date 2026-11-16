@@ -2940,3 +2940,165 @@ export async function getActivityLogsPaged(params: {
   );
   return response.data.data;
 }
+
+
+/* ------------------------------------------------------------------ */
+/* Staff Management v2: roles, departments, last login, notes,         */
+/* activity, password reset and photo upload.                          */
+/* ------------------------------------------------------------------ */
+
+export type StaffAccountFull = AdminUser & {
+  staffRole?: string;
+  department?: string;
+  staffLocation?: string;
+  reportingTo?:
+    | { _id: string; name?: string; fullName?: string; email?: string }
+    | string
+    | null;
+  staffStatus?: string;
+  lastLoginAt?: string;
+  staffNumber?: number;
+  phoneNumber?: string;
+};
+
+export type StaffMeta = {
+  menus: Array<{ key: string; label: string; hint?: string }>;
+  actions: Array<{
+    module: string;
+    label: string;
+    actions: Array<{ key: string; label: string }>;
+  }>;
+  roles: Array<{ key: string; label: string }>;
+  presets: Record<string, { menus: string[]; actions: string[] }>;
+  departments: string[];
+};
+
+export type StaffListResponse = {
+  items: StaffAccountFull[];
+  total: number;
+  page: number;
+  limit: number;
+  counts: { total: number; active: number; onLeave: number; inactive: number };
+  roleDistribution: Record<string, number>;
+};
+
+export async function getStaffMeta() {
+  const response = await api.get<ApiEnvelope<StaffMeta>>("/admin/staff/meta");
+  return response.data.data;
+}
+
+export async function getStaffAccountsV2(params: {
+  search?: string;
+  role?: string;
+  department?: string;
+  status?: string;
+  page?: number;
+  limit?: number;
+}) {
+  const query = new URLSearchParams();
+  if (params.search) query.set("search", params.search);
+  if (params.role) query.set("role", params.role);
+  if (params.department) query.set("department", params.department);
+  if (params.status) query.set("status", params.status);
+  if (params.page) query.set("page", String(params.page));
+  if (params.limit) query.set("limit", String(params.limit));
+  const response = await api.get<ApiEnvelope<StaffListResponse>>(
+    `/admin/staff?${query.toString()}`
+  );
+  return response.data.data;
+}
+
+export async function createStaffAccountV2(payload: {
+  name: string;
+  email: string;
+  password: string;
+  phone?: string;
+  staffRole: string;
+  department?: string;
+  location?: string;
+  reportingTo?: string | null;
+  photoUrl?: string;
+  staffPermissions: { menus: string[]; actions: string[] };
+}) {
+  const response = await api.post<ApiEnvelope<StaffAccountFull>>(
+    "/admin/staff",
+    payload
+  );
+  return response.data.data;
+}
+
+export async function updateStaffAccountV2(
+  staffId: string,
+  payload: Partial<{
+    name: string;
+    phone: string;
+    staffRole: string;
+    department: string;
+    location: string;
+    reportingTo: string | null;
+    staffStatus: string;
+    accountStatus: string;
+    photoUrl: string;
+    staffPermissions: { menus: string[]; actions: string[] };
+  }>
+) {
+  const response = await api.patch<ApiEnvelope<StaffAccountFull>>(
+    `/admin/staff/${staffId}`,
+    payload
+  );
+  return response.data.data;
+}
+
+export async function resetStaffPassword(staffId: string, newPassword: string) {
+  const response = await api.post<ApiEnvelope<{ _id: string }>>(
+    `/admin/staff/${staffId}/reset-password`,
+    { newPassword }
+  );
+  return response.data.data;
+}
+
+export async function uploadStaffPhoto(file: File) {
+  const formData = new FormData();
+  formData.append("photo", file);
+  const response = await api.post<ApiEnvelope<{ url: string }>>(
+    "/admin/staff/photo",
+    formData
+  );
+  return response.data.data;
+}
+
+export type StaffNoteFull = {
+  _id: string;
+  text: string;
+  createdAt?: string;
+  author?: { _id: string; name?: string; fullName?: string; email?: string };
+};
+
+export async function getStaffNotes(staffId: string) {
+  const response = await api.get<ApiEnvelope<StaffNoteFull[]>>(
+    `/admin/staff/${staffId}/notes`
+  );
+  return response.data.data;
+}
+
+export async function createStaffNote(staffId: string, text: string) {
+  const response = await api.post<ApiEnvelope<StaffNoteFull>>(
+    `/admin/staff/${staffId}/notes`,
+    { text }
+  );
+  return response.data.data;
+}
+
+export async function deleteStaffNote(staffId: string, noteId: string) {
+  const response = await api.delete<ApiEnvelope<{ _id: string }>>(
+    `/admin/staff/${staffId}/notes/${noteId}`
+  );
+  return response.data.data;
+}
+
+export async function getStaffActivity(staffId: string) {
+  const response = await api.get<ApiEnvelope<ActivityLog[]>>(
+    `/admin/staff/${staffId}/activity`
+  );
+  return response.data.data;
+}

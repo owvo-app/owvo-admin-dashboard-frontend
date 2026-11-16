@@ -131,7 +131,12 @@ export function Sidebar() {
     .map((section) => ({
       ...section,
       items: isStaff
-        ? section.items.filter((item) => canAccessMenu(user, item.key))
+        ? section.items.filter(
+            (item) =>
+              // Staff Management is admin-only by rule: even if the menu
+              // key was ever assigned to a staff account, it never shows.
+              item.key !== "staff-management" && canAccessMenu(user, item.key)
+          )
         : section.items,
     }))
     .filter((section) => section.items.length > 0);

@@ -7054,3 +7054,288 @@ a {
   max-width: 220px;
   width: auto;
 }
+
+
+
+/* ------------------------------------------------------------------ */
+/* Staff Management v2                                                 */
+/* ------------------------------------------------------------------ */
+.stf-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 14px;
+  margin-bottom: 16px;
+}
+.stf-donut-card {
+  grid-column: span 2;
+}
+.stf-donut-wrap {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 8px;
+}
+.stf-donut-legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 12.5px;
+}
+.stf-donut-legend li {
+  align-items: center;
+  display: flex;
+  gap: 7px;
+  margin-bottom: 4px;
+}
+.stf-dot {
+  border-radius: 50%;
+  display: inline-block;
+  height: 9px;
+  width: 9px;
+}
+.stf-chip {
+  border-radius: 999px;
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 3px 10px;
+}
+.stf-chip.purple { background: #ede9fe; color: #5b21b6; }
+.stf-chip.blue { background: #dbeafe; color: #1e40af; }
+.stf-chip.green { background: #d1fae5; color: #065f46; }
+.stf-chip.orange { background: #fef3c7; color: #92400e; }
+.stf-chip.grey { background: #e5e7eb; color: #374151; }
+.stf-mini-chip {
+  background: #f1f5f9;
+  border-radius: 999px;
+  font-size: 12px;
+  padding: 3px 9px;
+}
+.stf-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.table-status.onleave { background: #fef3c7; color: #92400e; }
+.stf-name-cell {
+  align-items: center;
+  display: inline-flex;
+  gap: 9px;
+}
+.stf-avatar {
+  align-items: center;
+  background: #0b1f2d;
+  border-radius: 50%;
+  color: #f5c518;
+  display: inline-flex;
+  font-size: 13px;
+  font-weight: 700;
+  height: 38px;
+  justify-content: center;
+  width: 38px;
+}
+.stf-avatar.small { height: 30px; width: 30px; font-size: 11px; }
+.stf-avatar-img {
+  border-radius: 50%;
+  height: 38px;
+  object-fit: cover;
+  width: 38px;
+}
+.stf-avatar-img.small { height: 30px; width: 30px; }
+.stf-icon-btn {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  color: #475569;
+  cursor: pointer;
+  display: inline-flex;
+  justify-content: center;
+  padding: 6px;
+}
+.stf-icon-btn:hover { background: #f1f5f9; }
+.stf-menu {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  box-shadow: 0 12px 32px rgba(2, 6, 23, 0.16);
+  display: flex;
+  flex-direction: column;
+  padding: 6px;
+  position: fixed;
+  width: 196px;
+  z-index: 60;
+}
+.stf-menu button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  cursor: pointer;
+  display: flex;
+  font-size: 13.5px;
+  gap: 8px;
+  padding: 8px 10px;
+  text-align: left;
+}
+.stf-menu button:hover { background: #f8fafc; }
+.stf-menu button.danger { color: #b91c1c; }
+.stf-modal-backdrop {
+  align-items: flex-start;
+  background: rgba(2, 6, 23, 0.5);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  overflow-y: auto;
+  padding: 32px 16px;
+  position: fixed;
+  z-index: 70;
+}
+.stf-modal {
+  background: #fff;
+  border-radius: 16px;
+  max-width: 640px;
+  padding: 22px;
+  width: 100%;
+}
+.stf-modal.small { max-width: 440px; }
+.stf-modal-head {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.stf-modal-head h2 { font-size: 18px; margin: 0; }
+.stf-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.stf-step {
+  background: #f1f5f9;
+  border-radius: 999px;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 11px;
+}
+.stf-step.active { background: #0b1f2d; color: #f5c518; }
+.stf-step.done { background: #d1fae5; color: #065f46; }
+.stf-form { margin-bottom: 6px; }
+.stf-two {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 1fr 1fr;
+}
+.stf-photo-row {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.stf-perm-tree {
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  max-height: 380px;
+  overflow-y: auto;
+  padding: 12px 14px;
+}
+.stf-perm-module {
+  border-bottom: 1px solid #f1f5f9;
+  padding: 7px 0;
+}
+.stf-perm-module:last-child { border-bottom: 0; }
+.stf-perm-actions {
+  border-left: 2px solid #e5e7eb;
+  margin: 4px 0 4px 8px;
+  padding-left: 16px;
+}
+.stf-modal-foot {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  margin-top: 16px;
+}
+.stf-panel-backdrop {
+  background: rgba(2, 6, 23, 0.45);
+  inset: 0;
+  position: fixed;
+  z-index: 65;
+}
+.stf-panel {
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  margin-left: auto;
+  max-width: 480px;
+  overflow-y: auto;
+  padding: 20px;
+  width: 92vw;
+}
+.stf-panel-head {
+  align-items: flex-start;
+  display: flex;
+  justify-content: space-between;
+}
+.stf-panel-id {
+  align-items: flex-start;
+  display: flex;
+  gap: 12px;
+}
+.stf-panel-id h2 { font-size: 18px; margin: 0 0 2px; }
+.stf-panel-id p { margin: 2px 0; }
+.stf-tabs {
+  border-bottom: 1px solid #e5e7eb;
+  display: flex;
+  gap: 4px;
+  margin: 16px 0;
+}
+.stf-tabs button {
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  font-size: 13.5px;
+  font-weight: 600;
+  padding: 8px 10px;
+}
+.stf-tabs button.active {
+  border-bottom-color: #f5c518;
+  color: #0b1f2d;
+}
+.stf-panel-body h3 {
+  font-size: 14px;
+  margin: 16px 0 8px;
+}
+.stf-panel-body h3:first-child { margin-top: 0; }
+.stf-panel-foot {
+  border-top: 1px solid #e5e7eb;
+  display: flex;
+  gap: 10px;
+  margin-top: auto;
+  padding-top: 14px;
+}
+.stf-activity, .stf-notes { list-style: none; margin: 0; padding: 0; }
+.stf-activity li {
+  border-bottom: 1px solid #f1f5f9;
+  display: flex;
+  flex-direction: column;
+  padding: 9px 0;
+}
+.stf-notes li {
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  position: relative;
+}
+.stf-notes li p { margin: 0 24px 4px 0; }
+.stf-notes li .stf-icon-btn {
+  position: absolute;
+  right: 6px;
+  top: 6px;
+}
+.stf-note-form { margin-bottom: 14px; }
+.stf-note-form .booking-create-btn { margin-top: 8px; }

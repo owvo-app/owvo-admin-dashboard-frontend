@@ -1,4 +1,4 @@
-import { StaffManagementPageContent } from "@/components/OperationsPages";
+import { StaffManagementPageContent } from "@/components/StaffManagementPageContent";
 
 export default function StaffManagementPage() {
   return <StaffManagementPageContent />;
