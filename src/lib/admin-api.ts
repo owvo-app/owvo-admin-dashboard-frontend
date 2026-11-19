@@ -3104,3 +3104,85 @@ export async function getStaffActivity(staffId: string) {
   );
   return response.data.data;
 }
+
+// ── Service Areas (Settings tab) ─────────────────────────────────────
+export type ServiceAreaItem = {
+  _id: string;
+  city: string;
+  areaName: string;
+  postcode: string;
+  postcodeDistrict: string;
+  kind: "district" | "full" | "placeholder";
+  isActive: boolean;
+  customerWaitlist: number;
+  providerWaitlist: number;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export type ServiceAreasResponse = {
+  restricted: boolean;
+  items: ServiceAreaItem[];
+};
+
+export async function getAdminServiceAreas() {
+  const response = await api.get<ApiEnvelope<ServiceAreasResponse>>(
+    "/admin/service-areas"
+  );
+  return response.data.data;
+}
+
+export async function createAdminServiceArea(payload: {
+  city: string;
+  areaName: string;
+  postcode?: string;
+}) {
+  const response = await api.post<ApiEnvelope<ServiceAreaItem>>(
+    "/admin/service-areas",
+    payload
+  );
+  return { item: response.data.data, message: response.data.message };
+}
+
+export async function updateAdminServiceArea(
+  areaId: string,
+  payload: Partial<{
+    city: string;
+    areaName: string;
+    postcode: string;
+    isActive: boolean;
+  }>
+) {
+  const response = await api.patch<ApiEnvelope<ServiceAreaItem>>(
+    `/admin/service-areas/${areaId}`,
+    payload
+  );
+  return { item: response.data.data, message: response.data.message };
+}
+
+export async function deleteAdminServiceArea(areaId: string) {
+  const response = await api.delete<ApiEnvelope<{ _id: string }>>(
+    `/admin/service-areas/${areaId}`
+  );
+  return response.data;
+}
+
+export type ServiceAreaCoverageCheck = {
+  postcode: string;
+  district: string;
+  status: "active" | "inactive" | "not_listed";
+  area: {
+    _id: string;
+    city: string;
+    areaName: string;
+    postcode: string;
+    isActive: boolean;
+  } | null;
+};
+
+export async function checkAdminServiceAreaCoverage(postcode: string) {
+  const response = await api.get<ApiEnvelope<ServiceAreaCoverageCheck>>(
+    `/admin/service-areas/check?postcode=${encodeURIComponent(postcode)}`
+  );
+  return { result: response.data.data, message: response.data.message };
+}

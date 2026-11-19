@@ -46,7 +46,7 @@ const WEEK_DAYS = [
   "Sunday",
 ];
 
-export function SettingsPageContent() {
+export function SettingsPageContent({ bareHeader = false }: { bareHeader?: boolean } = {}) {
   const queryClient = useQueryClient();
   const user = useDashboardUser();
   const canEdit = user?.role === "admin";
@@ -274,13 +274,17 @@ export function SettingsPageContent() {
       : null;
 
   return (
-    <section className="data-page">
-      <div className="data-page-header">
-        <div>
-          <h1>Settings</h1>
-          <p>Admin-controlled platform settings connected to the backend.</p>
-        </div>
-      </div>
+    <div>
+      {bareHeader ? null : (
+        <section className="data-page">
+          <div className="data-page-header">
+            <div>
+              <h1>Settings</h1>
+              <p>Admin-controlled platform settings connected to the backend.</p>
+            </div>
+          </div>
+        </section>
+      )}
 
       {settingsQuery.isLoading ? (
         <div className="empty-state">
@@ -587,7 +591,7 @@ export function SettingsPageContent() {
           ) : null}
         </>
       )}
-    </section>
+    </div>
   );
 }
 

@@ -7350,3 +7350,51 @@ a {
   font-size: 12px;
   margin-top: 4px;
 }
+
+/* ── Service Areas (Settings tab) ─────────────────────────────── */
+.sa-tabs { display: flex; gap: 8px; margin: 4px 0 20px; }
+.sa-tab { border: 1px solid var(--border, #e3e0d8); background: #fff; color: #444; border-radius: 10px; padding: 8px 18px; font-weight: 600; cursor: pointer; }
+.sa-tab-active { background: #f5b921; border-color: #f5b921; color: #1a1a1a; }
+.sa-toolbar { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
+.sa-title { font-size: 22px; font-weight: 700; margin: 0; }
+.sa-sub { color: #6b675f; margin: 4px 0 0; }
+.sa-add-btn { display: inline-flex; align-items: center; gap: 6px; background: #f5b921; border: none; color: #1a1a1a; font-weight: 700; border-radius: 10px; padding: 10px 16px; cursor: pointer; }
+.sa-add-btn:disabled { opacity: .6; cursor: default; }
+.sa-note { background: #f4f1ea; border: 1px solid #e3e0d8; border-radius: 10px; padding: 10px 14px; color: #55524b; margin: 0 0 14px; }
+.sa-note-warn { background: #fdf3e3; border-color: #f0d9a8; color: #7a5b12; }
+.sa-check-card { background: #fff; border: 1px solid #e3e0d8; border-radius: 14px; padding: 16px; margin-bottom: 16px; }
+.sa-check-row { display: flex; gap: 10px; flex-wrap: wrap; }
+.sa-check-input { flex: 1 1 260px; }
+.sa-check-btn { display: inline-flex; align-items: center; gap: 6px; background: #fff; border: 1.5px solid #1a1a1a; color: #1a1a1a; font-weight: 600; border-radius: 10px; padding: 9px 16px; cursor: pointer; }
+.sa-check-btn:disabled { opacity: .6; cursor: default; }
+.sa-check-error { color: #b3261e; margin: 10px 0 0; }
+.sa-check-result { margin: 10px 0 0; font-weight: 600; }
+.sa-ok { color: #177245; }
+.sa-warn { color: #7a5b12; }
+.sa-muted { color: #6b675f; }
+.sa-notice { background: #eaf6ee; border: 1px solid #bfe6cc; color: #14532d; border-radius: 10px; padding: 10px 14px; margin: 0 0 14px; }
+.sa-table-wrap { background: #fff; border: 1px solid #e3e0d8; border-radius: 14px; overflow-x: auto; }
+.sa-table { width: 100%; border-collapse: collapse; min-width: 720px; }
+.sa-table th { text-align: left; background: #f4f1ea; padding: 12px 16px; font-size: 13px; color: #55524b; }
+.sa-table td { padding: 12px 16px; border-top: 1px solid #eee9df; vertical-align: middle; }
+.sa-switch { position: relative; width: 46px; height: 26px; border-radius: 999px; background: #cfc9bd; border: none; cursor: pointer; vertical-align: middle; padding: 0; }
+.sa-switch .sa-knob { position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: #fff; transition: left .15s ease; }
+.sa-switch.sa-on { background: #22a35a; }
+.sa-switch.sa-on .sa-knob { left: 23px; }
+.sa-switch:disabled { opacity: .55; cursor: default; }
+.sa-status-text { margin-left: 10px; font-weight: 600; }
+.sa-actions { display: flex; gap: 6px; }
+.sa-icon-btn { background: #fff; border: 1px solid #e3e0d8; border-radius: 8px; padding: 6px; cursor: pointer; display: inline-flex; }
+.sa-foot { color: #6b675f; margin-top: 12px; font-size: 13px; }
+.sa-modal-backdrop { position: fixed; inset: 0; background: rgba(20, 18, 12, .45); display: flex; align-items: center; justify-content: center; z-index: 60; padding: 16px; }
+.sa-modal { background: #fff; border-radius: 16px; padding: 22px; width: 100%; max-width: 440px; }
+.sa-modal h3 { margin: 0 0 14px; font-size: 18px; }
+.sa-field { display: block; margin-bottom: 12px; }
+.sa-field span { display: block; font-weight: 600; font-size: 13px; margin-bottom: 6px; color: #44403a; }
+.sa-hint { color: #6b675f; font-size: 13px; margin: 4px 0 12px; }
+.sa-modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 8px; }
+.sa-btn-ghost { background: #fff; border: 1px solid #d8d2c6; border-radius: 10px; padding: 9px 16px; font-weight: 600; cursor: pointer; }
+.sa-btn-danger { display: inline-flex; align-items: center; gap: 6px; background: #b3261e; border: none; color: #fff; font-weight: 700; border-radius: 10px; padding: 10px 16px; cursor: pointer; }
+.sa-btn-danger:disabled { opacity: .6; cursor: default; }
+.sa-spin { animation: sa-rot 1s linear infinite; }
+@keyframes sa-rot { to { transform: rotate(360deg); } }
