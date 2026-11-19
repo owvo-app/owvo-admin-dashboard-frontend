@@ -12,7 +12,7 @@ import {
 } from "@/lib/admin-api";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Loader2, MapPin, Pencil, Plus, Search, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 type AreaForm = { city: string; areaName: string; postcode: string };
 
@@ -44,6 +44,102 @@ export function ServiceAreasPageContent() {
   const [form, setForm] = useState<AreaForm>(EMPTY_FORM);
   const [formError, setFormError] = useState("");
   const [formBusy, setFormBusy] = useState(false);
+
+  // Postcode madad (postcodes.io — free, koi key nahi): type karne par
+  // suggestions + jagah ki tasdeeq ke liye map preview. Ye sirf madad
+  // hai — service band ho to bhi form pehle ki tarah chalta hai.
+  type PcPlace = { lat: number; lng: number; label: string };
+  const [pcPlace, setPcPlace] = useState<PcPlace | null>(null);
+  const [pcSuggestions, setPcSuggestions] = useState<string[]>([]);
+  const [pcDistrict, setPcDistrict] = useState("");
+  const pcSeq = useRef(0);
+  const pcTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const resetPc = () => {
+    pcSeq.current += 1;
+    if (pcTimer.current) clearTimeout(pcTimer.current);
+    setPcPlace(null);
+    setPcSuggestions([]);
+    setPcDistrict("");
+  };
+
+  const resolvePcPlace = async (raw: string, seq: number) => {
+    const v = raw.trim().toUpperCase().replace(/\s+/g, " ");
+    const compact = v.replace(/\s/g, "");
+    try {
+      if (/^[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}$/.test(v)) {
+        const r = await fetch(
+          `https://api.postcodes.io/postcodes/${encodeURIComponent(v)}`
+        );
+        const j = await r.json();
+        if (pcSeq.current !== seq) return;
+        if (j?.result) {
+          setPcPlace({
+            lat: j.result.latitude,
+            lng: j.result.longitude,
+            label: `${j.result.outcode} \u00b7 ${j.result.admin_district}`,
+          });
+          setPcDistrict(j.result.outcode || "");
+        } else {
+          setPcPlace(null);
+        }
+      } else if (/^[A-Z]{1,2}\d[A-Z\d]?$/.test(compact)) {
+        const r = await fetch(
+          `https://api.postcodes.io/outcodes/${encodeURIComponent(compact)}`
+        );
+        const j = await r.json();
+        if (pcSeq.current !== seq) return;
+        if (j?.result) {
+          const districts: string[] = j.result.admin_district || [];
+          setPcPlace({
+            lat: j.result.latitude,
+            lng: j.result.longitude,
+            label: `${compact} district \u00b7 ${districts[0] || ""}`,
+          });
+          setPcDistrict(compact);
+        } else {
+          setPcPlace(null);
+          setPcDistrict("");
+        }
+      } else {
+        setPcPlace(null);
+      }
+    } catch {
+      // khamosh — map/suggestion na aye to bhi form chalta hai
+    }
+  };
+
+  const lookupPostcode = (raw: string) => {
+    const v = raw.trim().toUpperCase();
+    if (pcTimer.current) clearTimeout(pcTimer.current);
+    if (v.length < 2) {
+      setPcSuggestions([]);
+      setPcDistrict("");
+      setPcPlace(null);
+      return;
+    }
+    pcTimer.current = setTimeout(() => {
+      const seq = ++pcSeq.current;
+      fetch(
+        `https://api.postcodes.io/postcodes/${encodeURIComponent(v)}/autocomplete`
+      )
+        .then((r) => r.json())
+        .then((j) => {
+          if (pcSeq.current === seq) {
+            setPcSuggestions(Array.isArray(j?.result) ? j.result.slice(0, 8) : []);
+          }
+        })
+        .catch(() => {});
+      void resolvePcPlace(v, seq);
+    }, 350);
+  };
+
+  const pickPc = (value: string) => {
+    setForm((f) => ({ ...f, postcode: value }));
+    setPcSuggestions([]);
+    const seq = ++pcSeq.current;
+    void resolvePcPlace(value, seq);
+  };
 
   const [pauseTarget, setPauseTarget] = useState<ServiceAreaItem | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ServiceAreaItem | null>(null);
@@ -77,6 +173,7 @@ export function ServiceAreasPageContent() {
   };
 
   const openAdd = () => {
+    resetPc();
     setEditing(null);
     setForm(EMPTY_FORM);
     setFormError("");
@@ -84,6 +181,11 @@ export function ServiceAreasPageContent() {
   };
 
   const openEdit = (area: ServiceAreaItem) => {
+    resetPc();
+    if (area.postcode) {
+      const seq = ++pcSeq.current;
+      void resolvePcPlace(area.postcode, seq);
+    }
     setEditing(area);
     setForm({ city: area.city, areaName: area.areaName, postcode: area.postcode });
     setFormError("");
@@ -326,15 +428,57 @@ export function ServiceAreasPageContent() {
                 onChange={(e) => setForm({ ...form, areaName: e.target.value })}
               />
             </label>
-            <label className="sa-field">
+            <div className="sa-field">
               <span>Postcode (district or full)</span>
               <input
                 className="modal-input"
                 placeholder="e.g. BR5 or BR5 3DA — leave empty for a placeholder"
                 value={form.postcode}
-                onChange={(e) => setForm({ ...form, postcode: e.target.value })}
+                onChange={(e) => {
+                  setForm({ ...form, postcode: e.target.value });
+                  lookupPostcode(e.target.value);
+                }}
               />
-            </label>
+              {pcDistrict || pcSuggestions.length ? (
+                <div className="sa-suggest">
+                  {pcDistrict &&
+                  form.postcode.trim().toUpperCase().replace(/\s/g, "") !==
+                    pcDistrict ? (
+                    <button
+                      type="button"
+                      className="sa-suggest-item"
+                      onClick={() => pickPc(pcDistrict)}
+                    >
+                      <strong>{pcDistrict}</strong> — whole district
+                    </button>
+                  ) : null}
+                  {pcSuggestions.map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      className="sa-suggest-item"
+                      onClick={() => pickPc(s)}
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+              {pcPlace ? (
+                <div className="sa-map-wrap">
+                  <iframe
+                    title="Area map preview"
+                    className="sa-map"
+                    loading="lazy"
+                    src={`https://www.openstreetmap.org/export/embed.html?bbox=${pcPlace.lng - 0.035},${pcPlace.lat - 0.018},${pcPlace.lng + 0.035},${pcPlace.lat + 0.018}&layer=mapnik&marker=${pcPlace.lat},${pcPlace.lng}`}
+                  />
+                  <p className="sa-map-caption">
+                    {pcPlace.label} — check the map shows the area you mean
+                    before saving.
+                  </p>
+                </div>
+              ) : null}
+            </div>
             <p className="sa-hint">New areas start Inactive. Switch them on from the list when you are ready to launch.</p>
             {formError ? <p className="sa-check-error">{formError}</p> : null}
             <div className="sa-modal-actions">

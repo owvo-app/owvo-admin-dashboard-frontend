@@ -1662,15 +1662,18 @@ a {
   padding: 0 10px;
 }
 
+/* Password field: input poori width ka rehta hai (email field ke
+   bilkul barabar) aur eye button us ke ANDAR right par baithta hai —
+   pehle grid ki wajah se password box 38px chhota ho jata tha. */
 .password-input-shell {
-  align-items: center;
-  display: grid;
-  grid-template-columns: 1fr 38px;
+  display: block;
   position: relative;
 }
 
 .password-input-shell input {
+  box-sizing: border-box;
   padding-right: 42px;
+  width: 100%;
 }
 
 .password-input-shell button {
@@ -1682,7 +1685,10 @@ a {
   display: inline-flex;
   height: 38px;
   justify-content: center;
-  margin-left: -38px;
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
   width: 38px;
 }
 
@@ -7398,3 +7404,13 @@ a {
 .sa-btn-danger:disabled { opacity: .6; cursor: default; }
 .sa-spin { animation: sa-rot 1s linear infinite; }
 @keyframes sa-rot { to { transform: rotate(360deg); } }
+
+/* ── Service Areas: postcode suggestions + map preview ──── */
+.sa-suggest { border: 1px solid #e3e0d8; border-radius: 10px; margin-top: 6px; overflow: hidden; }
+.sa-suggest-item { display: block; width: 100%; text-align: left; background: #fff; border: none; border-top: 1px solid #f0ece3; padding: 9px 12px; font-size: 14px; cursor: pointer; color: #1a1a1a; }
+.sa-suggest-item:first-child { border-top: none; }
+.sa-suggest-item:hover { background: #fdf6e0; }
+.sa-map-wrap { margin-top: 10px; }
+.sa-map { width: 100%; height: 200px; border: 1px solid #e3e0d8; border-radius: 12px; display: block; }
+.sa-map-caption { font-size: 12.5px; color: #6b675f; margin: 6px 0 0; }
+.sa-modal { max-height: 92vh; overflow-y: auto; }
